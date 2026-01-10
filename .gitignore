@@ -1,0 +1,27 @@
+# --- Secrets ---
+server/conf/secret_settings.py
+server/conf/secret_settings*.py
+.env
+.env.*
+*.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# --- Evennia / logs / runtime ---
+server/logs/
+server/*.log
+server/*.pid
+server/*.sqlite3
+server/game_template/  # if you ever generate template artifacts here (optional)
+
+# --- OS / editors ---
+.DS_Store
+.vscode/
+.idea/
