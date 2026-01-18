@@ -226,3 +226,39 @@ def test_chat_json_tries_providers_in_order(monkeypatch):
     c = llm.LLMClient(max_attempts=1)
     out = c.chat_json([a, b], [{"role": "user", "content": "hi"}])
     assert out == {"win": True}
+
+def test_chat_json_logs_provider_level_exception_and_raises(monkeypatch):
+    logs = []
+    patch_logger(monkeypatch, logs)
+
+    class BoomClient(llm.LLMClient):
+        def _call_chat_completions_json(self, provider, messages):
+            raise RuntimeError("boom")
+
+    c = BoomClient(max_attempts=1)
+
+    p = llm.LLMProvider(label="p", base_url="http://x/v1", model="m")
+    try:
+        c.chat_json([p], [{"role": "user", "content": "hi"}])
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "All LLM providers failed" in str(e)
+
+    assert any("Provider-level exception" in m for m in logs)
+
+def test_call_handles_response_json_failure(monkeypatch):
+    logs = []
+    patch_logger(monkeypatch, logs)
+    patch_sleep_and_random(monkeypatch)
+
+    # status 200 but .json() raises => should retry then exhaust -> None
+    bad = FakeResponse(status_code=200, json_data=None, text="not json")
+    fake_http = FakeHTTPXClient([bad])
+    patch_httpx_client(monkeypatch, fake_http)
+
+    provider = llm.LLMProvider(label="p", base_url="http://x/v1", model="m")
+    c = llm.LLMClient(max_attempts=1)
+
+    out = c._call_chat_completions_json(provider, [{"role": "user", "content": "hi"}])
+    assert out is None
+    assert any("Exception attempt 1" in m for m in logs)
