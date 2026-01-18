@@ -128,6 +128,24 @@ def test_resolve_edit_target_ambiguity_returns_list(monkeypatch):
     assert obj is None
     assert set(amb) == {lamp1, lamp2}
 
+def test_resolve_edit_target_skips_none_entries(monkeypatch):
+    # Patch inherits_from so nothing is treated as exit/character
+    monkeypatch.setattr(rt, "inherits_from", lambda obj, path: False)
+
+    class Obj:
+        def __init__(self, key, sd, notable=True, dbref="#1"):
+            self.key = key
+            self.dbref = dbref
+            self.db = type("DB", (), {"shortdesc": sd, "notable": notable})()
+
+    room = type("Room", (), {})()
+    room.contents = [None, Obj("Seafoam Brass Lamp", "a brass lamp", notable=True, dbref="#10")]
+
+    # No dbref in instruction, so it goes into scoring loop and must skip None (line 32)
+    target, amb = rt.resolve_edit_target(room, "change lamp to blue")
+    assert target is not None
+    assert amb == []
+    assert target.dbref == "#10"
 
 def test_instruction_mentions_target_dbref_trusts(monkeypatch):
     patch_inherits_from(monkeypatch)
