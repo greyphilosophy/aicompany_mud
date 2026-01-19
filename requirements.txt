@@ -9,3 +9,6 @@ pytest
 pytest-django
 pytest-cov
 pytest-pythonpath
+
+# Some systems need this too
+service_identity
