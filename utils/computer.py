@@ -19,6 +19,7 @@ from utils.affordance import ensure_affordance
 from utils.facts import get_facts
 
 from collections.abc import Mapping, Sequence
+from django.conf import settings
 
 def _json_safe(x):
     # primitives
@@ -54,14 +55,26 @@ class Computer:
 
     # ---------- Providers ----------
     def llm_providers(self):
-        r = self.room
         providers = [
-            LLMProvider(label="LOCAL", base_url=r.LOCAL_BASE_URL, model=r.LOCAL_MODEL, api_key=None)
-        ]
-        if r.OPENAI_API_KEY:
-            providers.append(
-                LLMProvider(label="OPENAI", base_url=r.OPENAI_BASE_URL, model=r.OPENAI_MODEL, api_key=r.OPENAI_API_KEY)
+            LLMProvider(
+                label="LOCAL",
+                base_url=getattr(settings, "LOCAL_BASE_URL", None),
+                model=getattr(settings, "LOCAL_MODEL", None),
+                api_key=None,
             )
+        ]
+        
+        openai_key = getattr(settings, "OPENAI_API_KEY", None)
+        if openai_key:
+            providers.append(
+                LLMProvider(
+                    label="OPENAI",
+                    base_url=getattr(settings, "OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                    model=getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini"),
+                    api_key=openai_key,
+                )
+            )
+            
         return providers
 
     # ---------- Context ----------

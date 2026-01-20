@@ -62,15 +62,26 @@ class LLMClient:
         Try providers in order; return first successful JSON object.
         Raises RuntimeError if all fail.
         """
+        logger.log_info(
+            "[LLM] Provider order: "
+            + ", ".join(
+                f"{p.label}(model={p.model!r}, base_url={p.base_url!r}, api_key={'set' if p.api_key else 'unset'})"
+                for p in providers
+            )
+        )
+
         last_exc: Optional[Exception] = None
         for provider in providers:
             try:
                 out = self._call_chat_completions_json(provider, messages)
-                if out is not None:
-                    return out
+                if out is None:
+                    raise RuntimeError("Provider returned no JSON (None)")
+                return out
             except Exception as exc:
                 last_exc = exc
-                logger.log_err(f"[LLM:{provider.label}] Provider-level exception: {exc!r}\n{traceback.format_exc()}")
+                logger.log_err(
+                    f"[LLM:{provider.label}] Provider-level exception: {exc!r}\n{traceback.format_exc()}"
+                )
 
         raise RuntimeError(f"All LLM providers failed. Last exception: {last_exc!r}")
 
