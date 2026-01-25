@@ -22,7 +22,7 @@ If no API keys are configured, the game still runs normally and will rely only o
 ---
 
 ## Repository Structure
-
+```
 aicompany_mud/
 ├── commands/ # Custom in-game commands
 ├── server/ # Evennia server configuration (expected structure)
@@ -31,7 +31,7 @@ aicompany_mud/
 ├── web/ # Web client overrides (if any)
 ├── world/ # Game content and prototypes
 └── README.md
-
+```
 The `server/` directory structure follows Evennia’s expectations and should not be reorganized without updating configuration.
 
 ---
@@ -39,7 +39,7 @@ The `server/` directory structure follows Evennia’s expectations and should no
 ## Requirements
 
 - Python (with a virtual environment recommended)
-- Evennia
+- Evennia (`pip install evennia`)
 - A locally running OpenAI-compatible LLM server
 
 No external API keys are required to run the game.
@@ -51,7 +51,7 @@ No external API keys are required to run the game.
 If you *do* want to enable a remote LLM fallback, set the following environment variable:
 
 ```
-export LLM_API_KEY="your-key-here"
+export OPENAI_API_KEY="your-key-here"
 ```
 
 A file named server/conf/secret_settings.py may exist locally, but it is intentionally not tracked by git.
@@ -59,19 +59,34 @@ If absent, the game will continue to operate using local models only.
 
 ---
 
-## Getting Started
+## Getting Started (Fresh Clone)
 
-From the repository root:
+### 1) Install dependencies
+```
+pip install -r requirements.txt
+```
+
+### 2) local secrets file
+
+This repo may reference `server/conf/secret_settings.py`, but that file is intentionally not committed.
+
+If the server complains it is missing, create it locally:
+
+`server/conf/secret_settings.py`
+
+```
+# Local overrides and secrets live here (not committed).
+```
+
+### 3) Initialize and start
 
 ```
 evennia migrate
 evennia start
 ```
-On first launch, create a superuser when prompted.
 
 MUD client: localhost:4000
-
-Web client: http://localhost:4001
+Web client: [http://localhost:4001](http://localhost:4001)
 
 ---
 
@@ -84,14 +99,6 @@ This project favors:
 - Systems that fail gracefully when AI components are unavailable
 
 It is a sandbox for ideas, not a production service.
-
----
-
-## Notes
-
-- Secrets and API keys are intentionally excluded from the repository.
-- The virtual environment (evenv/) lives outside the repo.
-- Backwards compatibility is not guaranteed; history exists to make iteration safe.
 
 ---
 
