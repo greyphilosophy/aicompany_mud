@@ -1,7 +1,5 @@
 # utils/computer.py
 import json
-from evennia.utils.utils import inherits_from
-from evennia.utils import logger
 
 from utils.computer_prompts import (
     prop_create_system_prompt,
@@ -17,6 +15,7 @@ from utils.llm_client import build_default_client_from_env, LLMProvider
 from utils.room_director import build_snapshot, generate_from_snapshot
 from utils.affordance import ensure_affordance
 from utils.facts import get_facts
+from utils.room_object_query import iter_notable_props
 
 from collections.abc import Mapping, Sequence
 from django.conf import settings
@@ -63,7 +62,7 @@ class Computer:
                 api_key=None,
             )
         ]
-        
+
         openai_key = getattr(settings, "OPENAI_API_KEY", None)
         if openai_key:
             providers.append(
@@ -74,23 +73,24 @@ class Computer:
                     api_key=openai_key,
                 )
             )
-            
+
         return providers
+
+    def _build_messages(self, sys_prompt: str, payload: dict, ensure_json_safe: bool = False):
+        safe_payload = _json_safe(payload) if ensure_json_safe else payload
+        return [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": json.dumps(safe_payload, ensure_ascii=False)},
+        ]
+
+    def _chat_json(self, messages):
+        client = build_default_client_from_env()
+        return client.chat_json(self.llm_providers(), messages)
 
     # ---------- Context ----------
     def notable_objects_packet(self, include_desc=True, max_desc_chars=500):
-        r = self.room
         out = []
-        for obj in r.contents:
-            if not obj:
-                continue
-            if inherits_from(obj, "evennia.objects.objects.DefaultExit"):
-                continue
-            if inherits_from(obj, "evennia.objects.objects.DefaultCharacter"):
-                continue
-            if not obj.db.notable:
-                continue
-
+        for obj in iter_notable_props(self.room):
             ensure_affordance(obj)  # scaffold if missing
 
             desc = (obj.db.desc or "")
@@ -156,16 +156,9 @@ class Computer:
             recent_memory=memory,
         )
 
-        safe_payload = _json_safe(user_payload)
+        messages = self._build_messages(sys_prompt, user_payload, ensure_json_safe=True)
 
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": json.dumps(safe_payload, ensure_ascii=False)},
-        ]
-
-        client = build_default_client_from_env()
-        data = client.chat_json(self.llm_providers(), messages)
-        return data
+        return self._chat_json(messages)
 
     def predict_intent(self, speaker_key: str, utterance: str) -> dict:
         """
@@ -189,13 +182,9 @@ class Computer:
             recent_memory=memory,
         )
 
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-        ]
+        messages = self._build_messages(sys_prompt, user_payload, ensure_json_safe=False)
 
-        client = build_default_client_from_env()
-        return client.chat_json(self.llm_providers(), messages)
+        return self._chat_json(messages)
 
     def generate_prop_edit_json(self, speaker_key: str, instruction: str, target_dbref: str) -> dict:
         """
@@ -244,12 +233,6 @@ class Computer:
             recent_memory=memory,
         )
 
-        safe_payload = _json_safe(user_payload)
+        messages = self._build_messages(sys_prompt, user_payload, ensure_json_safe=True)
 
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": json.dumps(safe_payload, ensure_ascii=False)},
-        ]
-
-        client = build_default_client_from_env()
-        return client.chat_json(self.llm_providers(), messages)
+        return self._chat_json(messages)
