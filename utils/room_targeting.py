@@ -1,6 +1,7 @@
 # utils/room_targeting.py
 import re
-from evennia.utils.utils import inherits_from
+
+from utils.room_object_query import find_object_by_dbref, iter_notable_props
 
 def _words(s: str) -> list[str]:
     s = (s or "").lower()
@@ -20,22 +21,12 @@ def resolve_edit_target(room, instruction: str):
     m = re.search(r"(#\d+)", text)
     if m:
         dbref = m.group(1)
-        for obj in (room.contents or []):
-            if obj and str(obj.dbref) == dbref:
-                return (obj, [])
-        return (None, [])
+        obj = find_object_by_dbref(room, dbref)
+        return (obj, []) if obj else (None, [])
 
     low = text.lower()
     scored = []
-    for obj in (room.contents or []):
-        if not obj:
-            continue
-        if inherits_from(obj, "evennia.objects.objects.DefaultExit"):
-            continue
-        if inherits_from(obj, "evennia.objects.objects.DefaultCharacter"):
-            continue
-        if not getattr(obj.db, "notable", False):
-            continue
+    for obj in iter_notable_props(room):
 
         key = (obj.key or "").strip()
         sd = (obj.db.shortdesc or "").strip()
