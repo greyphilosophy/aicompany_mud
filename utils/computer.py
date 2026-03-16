@@ -55,26 +55,31 @@ class Computer:
 
     # ---------- Providers ----------
     def llm_providers(self):
+        # Prefer room-level provider config when present, then fall back to Django settings.
+        # This keeps provider selection testable and allows per-room overrides.
+        local_base_url = getattr(self.room, "LOCAL_BASE_URL", getattr(settings, "LOCAL_BASE_URL", None))
+        local_model = getattr(self.room, "LOCAL_MODEL", getattr(settings, "LOCAL_MODEL", None))
+
         providers = [
             LLMProvider(
                 label="LOCAL",
-                base_url=getattr(settings, "LOCAL_BASE_URL", None),
-                model=getattr(settings, "LOCAL_MODEL", None),
+                base_url=local_base_url,
+                model=local_model,
                 api_key=None,
             )
         ]
-        
-        openai_key = getattr(settings, "OPENAI_API_KEY", None)
+
+        openai_key = getattr(self.room, "OPENAI_API_KEY", getattr(settings, "OPENAI_API_KEY", None))
         if openai_key:
             providers.append(
                 LLMProvider(
                     label="OPENAI",
-                    base_url=getattr(settings, "OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                    model=getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini"),
+                    base_url=getattr(self.room, "OPENAI_BASE_URL", getattr(settings, "OPENAI_BASE_URL", "https://api.openai.com/v1")),
+                    model=getattr(self.room, "OPENAI_MODEL", getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini")),
                     api_key=openai_key,
                 )
             )
-            
+
         return providers
 
     # ---------- Context ----------
