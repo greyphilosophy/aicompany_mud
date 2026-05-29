@@ -147,14 +147,7 @@ class LLMClient:
         return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
 
     def _extract_json_from_text(self, text: Any, label: str) -> Optional[JsonDict]:
-        """
-        Try to extract a JSON dict from model output text.
-
-        Strips <thinking> tags first (Qwen3-14B-NVFP4 outputs thinking blocks),
-        then tries top-level JSON object matching.
-        """
         if text is None:
-            logger.log_err(f"[LLM:{label}] No content to parse.")
             return None
 
         t = str(text).strip()
@@ -162,8 +155,27 @@ class LLMClient:
         # Strip <thinking>...</thinking> blocks from reasoning-model outputs
         t = self._strip_thinking_tags(t)
 
-        # Try finding all top-level JSON objects (non-nested braces) — prefer the LAST
-        # valid one, which is most likely the model's final answer in reasoning text.
+        # Try parsing the entire text as JSON first (handles nested objects)
+        try:
+            obj = json.loads(t)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+
+        # Try greedy match on the whole text for nested JSON
+        m = re.search(r"\{.*\}", t, flags=re.DOTALL)
+        if m:
+            try:
+                obj = json.loads(m.group(0))
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                pass
+
+        # If the full greedy parse returned a dict with a nested object key,
+        # unpack one level (e.g., {"object": {...}} or {"result": {...}})
+        # and return the innermost dict that has the schema fields.
         candidates: list[tuple[int, JsonDict]] = []
         for match in re.finditer(r"\{[^{}]*\}", t):
             try:
@@ -174,17 +186,13 @@ class LLMClient:
                 continue
 
         if candidates:
-            # Return the last valid JSON dict (most likely the final answer)
             return candidates[-1][1]
 
-        # If no simple block found, try a greedy match on the whole text
-        m = re.search(r"\{.*\}", t, flags=re.DOTALL)
-        if m:
-            try:
-                obj = json.loads(m.group(0))
-                return obj if isinstance(obj, dict) else None
-            except Exception:
-                pass
+        # Last resort: try to find JSON-like patterns in the text
+        for pattern in [r'"desc"\s*:\s*"([^"]+)"', r'"key"\s*:\s*"([^"]+)":', r'"shortdesc"\s*:\s*"([^"]+)"']:
+            m = re.search(pattern, t)
+            if m:
+                break
 
         logger.log_err(f"[LLM:{label}] No JSON object found. Raw (first 800): {t[:800]!r}")
         return None

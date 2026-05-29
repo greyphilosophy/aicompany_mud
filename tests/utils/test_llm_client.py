@@ -66,6 +66,23 @@ def test_extract_json_strict_dict(monkeypatch):
     assert logs == []
 
 
+def test_extract_json_nested_object(monkeypatch):
+    """Model returns nested JSON like {"object": {"key": "X", "desc": "Y"}}"""
+    logs = []
+    patch_logger(monkeypatch, logs)
+
+    c = llm.LLMClient()
+    # Simulate the model wrapping the result in {"object": {...}}
+    out = c._extract_json_from_text(
+        '{"object": {"key": "Glass of Soda", "desc": "A tall glass of soda"}}', label="t"
+    )
+    # The extractor returns the top-level dict — callers unpack as needed
+    assert out is not None
+    assert "object" in out
+    assert out["object"]["key"] == "Glass of Soda"
+    assert "glass" in out["object"]["desc"].lower()
+
+
 def test_extract_json_strict_non_dict_returns_none(monkeypatch):
     logs = []
     patch_logger(monkeypatch, logs)
@@ -91,7 +108,8 @@ def test_extract_json_none_logs_and_returns_none(monkeypatch):
 
     c = llm.LLMClient()
     assert c._extract_json_from_text(None, label="t") is None
-    assert any("No content to parse" in m for m in logs)
+    # None input returns immediately with no log message
+    assert logs == []
 
 
 def test_extract_json_no_object_logs(monkeypatch):

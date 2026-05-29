@@ -435,10 +435,17 @@ class SmartRoom(DefaultRoom):
                 if not isinstance(propdata, dict):
                     raise ValueError(f"LLM returned non-dict: {propdata!r}")
 
-                key = str(propdata.get("key") or "").strip() or remainder.strip().title()[:60]
-                shortdesc = str(propdata.get("shortdesc") or "").strip() or f"a manifested {remainder[:40].strip()}"
+                key = str(propdata.get("key") or "").strip()
+                shortdesc = str(propdata.get("shortdesc") or "").strip()
 
                 desc = (propdata.get("desc") or propdata.get("description") or "").strip()
+
+                # All fields empty — skip the object and just acknowledge
+                if not key and not shortdesc and not desc:
+                    self.msg_contents(f"|mThe room hums.|n {remainder.strip().title()} has been noted.")
+                    return
+
+                # If LLM didn't give a proper description, build a minimal one
                 if not desc:
                     desc = f"A newly manifested {remainder.strip()}."
 
