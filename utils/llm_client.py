@@ -142,9 +142,16 @@ class LLMClient:
         logger.log_err(f"[LLM:{provider.label}] Exhausted attempts. Last error: {last_err}")
         return None
 
+    def _strip_thinking_tags(self, text: str) -> str:
+        """Strip <thinking>...</thinking> blocks from reasoning-model outputs (Qwen3, etc.)."""
+        return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+
     def _extract_json_from_text(self, text: Any, label: str) -> Optional[JsonDict]:
         """
-        Try strict json.loads, then extract first {...} block.
+        Try to extract a JSON dict from model output text.
+
+        Strips <thinking> tags first (Qwen3-14B-NVFP4 outputs thinking blocks),
+        then tries top-level JSON object matching.
         """
         if text is None:
             logger.log_err(f"[LLM:{label}] No content to parse.")
@@ -152,29 +159,35 @@ class LLMClient:
 
         t = str(text).strip()
 
-        # strict
-        try:
-            obj = json.loads(t)
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            pass
+        # Strip <thinking>...</thinking> blocks from reasoning-model outputs
+        t = self._strip_thinking_tags(t)
 
-        # extract first JSON object
+        # Try finding all top-level JSON objects (non-nested braces) — prefer the LAST
+        # valid one, which is most likely the model's final answer in reasoning text.
+        candidates: list[tuple[int, JsonDict]] = []
+        for match in re.finditer(r"\{[^{}]*\}", t):
+            try:
+                obj = json.loads(match.group(0))
+                if isinstance(obj, dict):
+                    candidates.append((match.start(), obj))
+            except Exception:
+                continue
+
+        if candidates:
+            # Return the last valid JSON dict (most likely the final answer)
+            return candidates[-1][1]
+
+        # If no simple block found, try a greedy match on the whole text
         m = re.search(r"\{.*\}", t, flags=re.DOTALL)
-        if not m:
-            logger.log_err(f"[LLM:{label}] No JSON object found. Raw (first 800): {t[:800]!r}")
-            return None
+        if m:
+            try:
+                obj = json.loads(m.group(0))
+                return obj if isinstance(obj, dict) else None
+            except Exception:
+                pass
 
-        candidate = m.group(0)
-        try:
-            obj = json.loads(candidate)
-            return obj if isinstance(obj, dict) else None
-        except Exception as exc:
-            logger.log_err(
-                f"[LLM:{label}] JSON extraction parse failed: {exc!r}. "
-                f"Candidate (first 800): {candidate[:800]!r}. Raw (first 800): {t[:800]!r}"
-            )
-            return None
+        logger.log_err(f"[LLM:{label}] No JSON object found. Raw (first 800): {t[:800]!r}")
+        return None
 
 
 def build_default_client_from_env() -> LLMClient:

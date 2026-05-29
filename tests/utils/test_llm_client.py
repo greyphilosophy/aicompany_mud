@@ -110,7 +110,7 @@ def test_extract_json_bad_candidate_logs(monkeypatch):
     c = llm.LLMClient()
     # Has braces, but invalid JSON (single quotes)
     assert c._extract_json_from_text("{'a': 1}", label="t") is None
-    assert any("JSON extraction parse failed" in m for m in logs)
+    assert any("No JSON object found" in m for m in logs)
 
 
 def test_build_default_client_from_env(monkeypatch):
