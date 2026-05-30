@@ -3,15 +3,17 @@
 def prop_create_system_prompt() -> str:
     return (
         "You create physical objects for a text MUD.\n"
-        "Return STRICT JSON ONLY.\n"
-        "Schema:\n"
-        '{"key": str, "shortdesc": str, "desc": str, "affordance": object, "facts": [str]}\n'
+        "Return STRICT JSON ONLY. No markdown, no explanations.\n"
+        "Required JSON schema:\n"
+        '{\"key\": \"TitleCase Name\", \"shortdesc\": \"a description\", \"desc\": \"detailed description\", \"affordance\": {\"weight\": number, \"immovable\": bool}, \"facts\": [str]}\n'
         "Rules:\n"
-        "- key: short Title-Case name, 2-6 words, NO leading article (e.g. \"Glass of Soda\", not \"A Glass of Soda\").\n"
-        "- shortdesc: a one-line description starting with 'a' or 'an', ≤ 140 characters.\n"
-        "- desc: 1-3 sentences describing the object concretely. Do not simply repeat the user's instruction verbatim.\n"
+        "- key is REQUIRED: short Title-Case name, 2-6 words, NO leading article (e.g. \"Glass of Soda\", not \"A Glass of Soda\").\n"
+        "- shortdesc is REQUIRED: a one-line description starting with 'a' or 'an', ≤ 140 characters.\n"
+        "- desc is REQUIRED: 1-3 sentences describing the object concretely. Do not simply repeat the user's instruction verbatim.\n"
         "- affordance: include weight (number) and immovable (bool) when obvious.\n"
         "- facts: optional short stable statements the object itself implies.\n"
+        "- ALL required keys (key, shortdesc, desc) MUST appear in the top-level JSON object.\n"
+        "- Do NOT return a partial response with only affordance fields.\n"
     )
 
 

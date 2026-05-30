@@ -41,15 +41,15 @@ class LLMClient:
     Small reusable client for OpenAI-compatible /chat/completions.
 
     Usage:
-        client = LLMClient(timeout_s=30, max_attempts=4)
+        client = LLMClient(timeout_s=30, max_attempts=2)
         result = client.chat_json([local_provider, openai_provider], messages)
     """
 
     def __init__(
         self,
         timeout_s: float = 30.0,
-        max_attempts: int = 4,
-        temperature: float = 0.4,
+        max_attempts: int = 2,
+        temperature: float = 0.6,
         no_temperature_models: Optional[set[str]] = None,
     ):
         self.timeout_s = float(timeout_s)
@@ -128,6 +128,14 @@ class LLMClient:
                     content = data["choices"][0]["message"]["content"]
                     parsed = self._extract_json_from_text(content, label=provider.label)
                     if parsed is not None:
+                        # Validate that responses to prop_create and prop_edit prompts
+                        # contain the required schema fields. Retry on partial responses.
+                        if self._is_required_fields_missing(parsed, messages):
+                            logger.log_warn(
+                                f"[LLM:{provider.label}] Response missing required fields (attempt {attempt}/{self.max_attempts}): {parsed}"
+                            )
+                            last_err = "Missing required fields"
+                            continue
                         return parsed
                     last_err = "JSON parse failed"
 
@@ -146,6 +154,36 @@ class LLMClient:
     def _strip_thinking_tags(self, text: str) -> str:
         """Strip <thinking>...</thinking> blocks from reasoning-model outputs (Qwen3, etc.)."""
         return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+
+    def _is_required_fields_missing(self, response: JsonDict, messages: Messages) -> bool:
+        """Check if a response is missing required schema fields based on the prompt.
+        Returns True if the response looks incomplete (e.g., only affordance fields)."""
+        # Check if any message contains prop_create or prop_edit prompts
+        is_prop_prompt = False
+        is_intent_prompt = False
+        for msg in messages:
+            content = msg.get("content", "")
+            if "key is REQUIRED" in content:
+                is_prop_prompt = True
+            if "intent_router" in content or '"intent"' in content:
+                is_intent_prompt = True
+
+        # Prop create/edit requires key, shortdesc, and desc
+        if is_prop_prompt:
+            missing = {"key", "desc", "shortdesc"} - set(response.keys())
+            if missing:
+                return True
+
+        # Intent router requires 'intent'
+        if is_intent_prompt:
+            if "intent" not in response:
+                return True
+
+        # Fallback: if response only has affordance-like fields, it's incomplete
+        if set(response.keys()) <= {"weight", "immovable"} and "key" not in response:
+            return True
+
+        return False
 
     def _extract_json_from_text(self, text: Any, label: str) -> Optional[JsonDict]:
         if text is None:
@@ -204,8 +242,8 @@ def build_default_client_from_env() -> LLMClient:
     Build a client with env-configurable knobs.
     """
     timeout_s = float(os.getenv("LLM_TIMEOUT_S", "120"))
-    max_attempts = int(os.getenv("LLM_MAX_ATTEMPTS", "4"))
-    temperature = float(os.getenv("LLM_TEMPERATURE", "0.4"))
+    max_attempts = int(os.getenv("LLM_MAX_ATTEMPTS", "2"))
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.6"))
     # Comma-separated model IDs that should omit temperature
     raw = os.getenv("LLM_NO_TEMPERATURE_MODELS", "gpt-5-mini")
     no_temp = {m.strip() for m in raw.split(",") if m.strip()}

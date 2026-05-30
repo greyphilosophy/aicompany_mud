@@ -61,12 +61,13 @@ class TestOllamaConnectivity:
 
     def test_ollama_health(self):
         base = getattr(settings, "LOCAL_BASE_URL", "")
-        ollama_base = base.rstrip("/v1").rstrip("/")
-        resp = httpx.get(ollama_base + "/api/tags", timeout=10)
+        # Use /v1/models endpoint (OpenAI-compatible API)
+        models_url = base.rstrip("/") + "/models"
+        resp = httpx.get(models_url, timeout=10)
         assert resp.status_code == 200
         data = resp.json()
-        assert "models" in data
-        assert len(data["models"]) > 0
+        assert "data" in data
+        assert len(data["data"]) > 0
 
     def test_ollama_chat_completion(self, local_provider):
         providers = [local_provider]
