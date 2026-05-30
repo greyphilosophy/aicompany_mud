@@ -120,6 +120,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
             name = f"{name} (#{self.id})"
         return name
 
+    def get_display_desc(self, looker, **kwargs):
+        """Return the room description, including any image URL."""
+        return self.get_description_with_image()
+
     def _is_scene_object(self, obj) -> bool:
         """
         Strict by default: only notable props influence room rewrites.
