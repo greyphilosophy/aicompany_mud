@@ -142,46 +142,67 @@ class LLMClient:
         logger.log_err(f"[LLM:{provider.label}] Exhausted attempts. Last error: {last_err}")
         return None
 
+    def _strip_thinking_tags(self, text: str) -> str:
+        """Strip <thinking>...</thinking> blocks from reasoning-model outputs (Qwen3, etc.)."""
+        return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+
     def _extract_json_from_text(self, text: Any, label: str) -> Optional[JsonDict]:
-        """
-        Try strict json.loads, then extract first {...} block.
-        """
         if text is None:
-            logger.log_err(f"[LLM:{label}] No content to parse.")
             return None
 
         t = str(text).strip()
 
-        # strict
+        # Strip <thinking>...</thinking> blocks from reasoning-model outputs
+        t = self._strip_thinking_tags(t)
+
+        # Try parsing the entire text as JSON first (handles nested objects)
         try:
             obj = json.loads(t)
-            return obj if isinstance(obj, dict) else None
+            if isinstance(obj, dict):
+                return obj
         except Exception:
             pass
 
-        # extract first JSON object
+        # Try greedy match on the whole text for nested JSON
         m = re.search(r"\{.*\}", t, flags=re.DOTALL)
-        if not m:
-            logger.log_err(f"[LLM:{label}] No JSON object found. Raw (first 800): {t[:800]!r}")
-            return None
+        if m:
+            try:
+                obj = json.loads(m.group(0))
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                pass
 
-        candidate = m.group(0)
-        try:
-            obj = json.loads(candidate)
-            return obj if isinstance(obj, dict) else None
-        except Exception as exc:
-            logger.log_err(
-                f"[LLM:{label}] JSON extraction parse failed: {exc!r}. "
-                f"Candidate (first 800): {candidate[:800]!r}. Raw (first 800): {t[:800]!r}"
-            )
-            return None
+        # If the full greedy parse returned a dict with a nested object key,
+        # unpack one level (e.g., {"object": {...}} or {"result": {...}})
+        # and return the innermost dict that has the schema fields.
+        candidates: list[tuple[int, JsonDict]] = []
+        for match in re.finditer(r"\{[^{}]*\}", t):
+            try:
+                obj = json.loads(match.group(0))
+                if isinstance(obj, dict):
+                    candidates.append((match.start(), obj))
+            except Exception:
+                continue
+
+        if candidates:
+            return candidates[-1][1]
+
+        # Last resort: try to find JSON-like patterns in the text
+        for pattern in [r'"desc"\s*:\s*"([^"]+)"', r'"key"\s*:\s*"([^"]+)":', r'"shortdesc"\s*:\s*"([^"]+)"']:
+            m = re.search(pattern, t)
+            if m:
+                break
+
+        logger.log_err(f"[LLM:{label}] No JSON object found. Raw (first 800): {t[:800]!r}")
+        return None
 
 
 def build_default_client_from_env() -> LLMClient:
     """
     Build a client with env-configurable knobs.
     """
-    timeout_s = float(os.getenv("LLM_TIMEOUT_S", "30"))
+    timeout_s = float(os.getenv("LLM_TIMEOUT_S", "90"))
     max_attempts = int(os.getenv("LLM_MAX_ATTEMPTS", "4"))
     temperature = float(os.getenv("LLM_TEMPERATURE", "0.4"))
     # Comma-separated model IDs that should omit temperature

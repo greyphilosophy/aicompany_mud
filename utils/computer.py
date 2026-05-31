@@ -165,6 +165,15 @@ class Computer:
 
         client = build_default_client_from_env()
         data = client.chat_json(self.llm_providers(), messages)
+        # Unwrap common nested shapes: the model sometimes returns
+        # {"object": {"key": ..., "desc": ...}} or {"result": {...}}.
+        # Flatten to the dict that actually contains our schema fields.
+        if isinstance(data, dict) and not ("key" in data or "desc" in data or "shortdesc" in data):
+            for wrapper_key in ("object", "result", "response", "data"):
+                inner = data.get(wrapper_key)
+                if isinstance(inner, dict):
+                    data = inner
+                    break
         return data
 
     def predict_intent(self, speaker_key: str, utterance: str) -> dict:

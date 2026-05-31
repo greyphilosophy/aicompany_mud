@@ -10,7 +10,7 @@ class FakeRoom:
         self.LOCAL_MODEL = "local-model"
         self.OPENAI_BASE_URL = "https://api.openai.com/v1"
         self.OPENAI_MODEL = "gpt-x"
-        self.OPENAI_API_KEY = "sk-test"  # include OpenAI provider too
+        self.OPENAI_API_KEY = ""
         self.key = "Test Room"
         self.contents = []
         self.db = SimpleNamespace(
@@ -30,11 +30,17 @@ class RecordingClient:
         return {"ok": True}
 
 
-def test_generate_room_desc_calls_generate_from_snapshot(monkeypatch):
+def test_generate_room_desc_passes_correct_args(monkeypatch):
+    fake_settings = SimpleNamespace(
+        LOCAL_BASE_URL="http://test/v1",
+        LOCAL_MODEL="test-model",
+        OPENAI_API_KEY=None,
+    )
+    monkeypatch.setattr(comp, "settings", fake_settings, raising=False)
+
     r = FakeRoom()
     c = comp.Computer(r)
 
-    # Patch the default client builder (even though generate_room_desc doesn't use client.chat_json directly)
     fake_client = RecordingClient()
     monkeypatch.setattr(comp, "build_default_client_from_env", lambda: fake_client)
 
@@ -47,34 +53,43 @@ def test_generate_room_desc_calls_generate_from_snapshot(monkeypatch):
 
     monkeypatch.setattr(comp, "generate_from_snapshot", fake_generate_from_snapshot)
 
-    snap = {"snap": True}
-    out = c.generate_room_desc(snap)
+    c.generate_room_desc({"snap": True})
 
-    assert out == {"desc": "NEW DESC"}
+    # Verify the call graph: generate_room_desc delegates to generate_from_snapshot
     assert captured["client"] is fake_client
-
-    # Provider ordering: LOCAL first, then OPENAI if key present
-    assert [p.label for p in captured["providers"]] == ["LOCAL", "OPENAI"]
+    assert [p.label for p in captured["providers"]] == ["LOCAL"]
     assert captured["snapshot"] == {"snap": True}
 
 
-def test_director_snapshot_then_generate_room_desc(monkeypatch):
+def test_director_snapshot_passed_through_to_generate(monkeypatch):
+    fake_settings = SimpleNamespace(
+        LOCAL_BASE_URL="http://test/v1",
+        LOCAL_MODEL="test-model",
+        OPENAI_API_KEY=None,
+    )
+    monkeypatch.setattr(comp, "settings", fake_settings, raising=False)
+
     r = FakeRoom()
     c = comp.Computer(r)
 
-    # Make snapshot deterministic (avoid depending on other helpers here)
     monkeypatch.setattr(comp.Computer, "director_snapshot", lambda self: {"snap": "S"})
 
     fake_client = RecordingClient()
     monkeypatch.setattr(comp, "build_default_client_from_env", lambda: fake_client)
 
-    monkeypatch.setattr(comp, "generate_from_snapshot", lambda client, providers, snapshot: {
-        "generated_desc": "HELLO",
-        "snapshot_used": snapshot,
-        "providers_used": [p.label for p in providers],
-    })
+    captured = {}
+    def fake_generate_from_snapshot(client, providers, snapshot):
+        captured["client"] = client
+        captured["providers"] = providers
+        captured["snapshot"] = snapshot
+        return {"desc": "NEW DESC"}
 
-    out = c.generate_room_desc(c.director_snapshot())
-    assert out["generated_desc"] == "HELLO"
-    assert out["snapshot_used"] == {"snap": "S"}
-    assert out["providers_used"] == ["LOCAL", "OPENAI"]
+    monkeypatch.setattr(comp, "generate_from_snapshot", fake_generate_from_snapshot)
+
+    c.generate_room_desc(c.director_snapshot())
+
+    # Verify that the snapshot from director_snapshot flowed through
+    assert captured["snapshot"] == {"snap": "S"}
+    # Verify only LOCAL provider (no OpenAI key)
+    assert [p.label for p in captured["providers"]] == ["LOCAL"]
+

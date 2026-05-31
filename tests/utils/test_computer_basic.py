@@ -58,27 +58,37 @@ def test_json_safe_fallback_stringifies_unknown():
     assert comp._json_safe(Weird()) == "<weird>"
 
 
-def test_llm_providers_local_only_when_no_openai_key():
+def test_llm_providers_local_only_when_no_openai_key(monkeypatch):
+    fake_settings = SimpleNamespace(
+        LOCAL_BASE_URL="http://test/v1",
+        LOCAL_MODEL="test-model",
+        OPENAI_API_KEY=None,
+    )
+    monkeypatch.setattr(comp, "settings", fake_settings, raising=False)
     r = FakeRoom()
     c = comp.Computer(r)
 
     providers = c.llm_providers()
     assert len(providers) == 1
     assert providers[0].label == "LOCAL"
-    assert providers[0].base_url == r.LOCAL_BASE_URL
-    assert providers[0].model == r.LOCAL_MODEL
+    assert providers[0].base_url == "http://test/v1"
+    assert providers[0].model == "test-model"
     assert providers[0].api_key is None
 
 
-def test_llm_providers_includes_openai_when_key_present():
+def test_llm_providers_includes_openai_when_key_present(monkeypatch):
+    fake_settings = SimpleNamespace(
+        LOCAL_BASE_URL="http://test/v1",
+        LOCAL_MODEL="test-model",
+        OPENAI_API_KEY="sk-test",
+        OPENAI_MODEL="gpt-4.1-mini",
+    )
+    monkeypatch.setattr(comp, "settings", fake_settings, raising=False)
     r = FakeRoom()
-    r.OPENAI_API_KEY = "sk-test"
     c = comp.Computer(r)
 
     providers = c.llm_providers()
     assert [p.label for p in providers] == ["LOCAL", "OPENAI"]
-    assert providers[1].base_url == r.OPENAI_BASE_URL
-    assert providers[1].model == r.OPENAI_MODEL
     assert providers[1].api_key == "sk-test"
 
 

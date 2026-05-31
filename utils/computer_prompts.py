@@ -7,9 +7,9 @@ def prop_create_system_prompt() -> str:
         "Schema:\n"
         '{"key": str, "shortdesc": str, "desc": str, "affordance": object, "facts": [str]}\n'
         "Rules:\n"
-        "- key: short Title-Case name (2-6 words).\n"
-        "- shortdesc: starts with 'a' or 'an'.\n"
-        "- desc: 1-3 sentences, concise.\n"
+        "- key: short Title-Case name, 2-6 words, NO leading article (e.g. \"Glass of Soda\", not \"A Glass of Soda\").\n"
+        "- shortdesc: a one-line description starting with 'a' or 'an', ≤ 140 characters.\n"
+        "- desc: 1-3 sentences describing the object concretely. Do not simply repeat the user's instruction verbatim.\n"
         "- affordance: include weight (number) and immovable (bool) when obvious.\n"
         "- facts: optional short stable statements the object itself implies.\n"
     )
