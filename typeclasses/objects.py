@@ -11,10 +11,8 @@ with a location in the game world (like Characters, Rooms, Exits).
 from evennia.objects.objects import DefaultObject
 from evennia.utils.utils import inherits_from
 
-from utils.image_mixin import ImageMixin
 
-
-class ObjectParent(ImageMixin):
+class ObjectParent:
     """
     This is a mixin that can be used to override *all* entities inheriting at
     some distance from DefaultObject (Objects, Exits, Characters and Rooms).
@@ -22,8 +20,6 @@ class ObjectParent(ImageMixin):
     Just add any method that exists on `DefaultObject` to this class. If one
     of the derived classes has itself defined that same hook already, that will
     take precedence.
-
-    Also inherits ImageMixin so all entities can display generated images.
     """
 
 
@@ -39,7 +35,13 @@ class Object(ObjectParent, DefaultObject):
             except Exception:
                 pass
         return super().at_object_delete()
-    
+
     def get_display_desc(self, looker=None, **kwargs):
         """Return the object description with image URL appended."""
-        return self.get_description_with_image()
+        desc = getattr(self.db, "desc", "") or ""
+        if getattr(self.db, "image_generating", False):
+            return f"{desc}\n\n|yImage: generating...|n"
+        url = getattr(self.db, "image_url", None)
+        if url:
+            return f"{desc}\n\n|yImage: {url}|n"
+        return desc

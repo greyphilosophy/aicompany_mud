@@ -30,6 +30,7 @@ from utils.room_object_query import (
 )
 from utils.room_targeting import resolve_edit_target, instruction_mentions_target
 from utils.room_text import normalize_say_message, is_computer_addressed, extract_computer_instruction
+from utils.image_mixin import ImageMixin
 
 
 class Room(DefaultRoom):
@@ -39,14 +40,18 @@ class Room(DefaultRoom):
     pass
 
 
-class SmartRoom(DefaultRoom):
+class SmartRoom(ImageMixin, DefaultRoom):
     """
     Room-as-manager:
     - Remembers recent speech (rolling buffer)
     - Dynamically appends a short "staging" line based on notable contents
     - Listens for "computer, ..." and manifests props with LLM-generated descriptions
+    - Generates room images on description rewrites
+    - Generates object images on prop creation
     """
 
+    # Disable image gen for rooms that don't want it
+    image_enabled = True
     MEMORY_MAX = 50                 # remember last N lines of speech
     LLM_COOLDOWN_SECONDS = 2.0      # minimum time between LLM calls per room
     LLM_MAX_ATTEMPTS = 4            # total attempts per request (per provider)
@@ -114,6 +119,10 @@ class SmartRoom(DefaultRoom):
         if f"(#{self.id})" not in name:
             name = f"{name} (#{self.id})"
         return name
+
+    def get_display_desc(self, looker, **kwargs):
+        """Return the room description, including any image URL."""
+        return self.get_description_with_image()
 
     def _is_scene_object(self, obj) -> bool:
         """
@@ -188,6 +197,13 @@ class SmartRoom(DefaultRoom):
 
                     # NEW: only announce if something actually changed
                     self.msg_contents("|mReality settles into a new arrangement.|n")
+                    # Trigger room image generation on description rewrite
+                    if self.image_enabled and self._can_trigger_image():
+                        import logging
+                        _img_log = logging.getLogger(__name__)
+                        _img_log.info(f"[SmartRoom #{self.id}] Triggering room image for: {new_desc[:80]}...")
+                        self._trigger_image_generation(new_desc, subject_type="room")
+
             finally:
                 self.ndb.desc_rewrite_inflight = False
 
@@ -603,4 +619,7 @@ class SmartRoom(DefaultRoom):
         if obj.db.affordance is None:
             obj.db.affordance = {"unit": "lb", "weight": 1.0, "immovable": False}
         obj.move_to(self, quiet=True)
+        # Trigger object image generation
+        if self.image_enabled and self._can_trigger_image():
+            self._trigger_object_image(obj)
         return obj
