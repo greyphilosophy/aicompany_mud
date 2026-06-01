@@ -606,7 +606,8 @@ class SmartRoom(ImageMixin, DefaultRoom):
         Create a basic prop in this room.
         """
         # Create off-room so we can set flags BEFORE the move triggers at_object_receive.
-        obj = create.create_object(DefaultObject, key=key, location=None)
+        from typeclasses.objects import Object
+        obj = create.create_object(Object, key=key, location=None)
         if shortdesc:
             obj.db.shortdesc = shortdesc
         if desc:
