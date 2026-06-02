@@ -41,13 +41,12 @@ BASE_EXIT_TYPECLASS = "typeclasses.exits.Exit"
 IMAGES_DIR = os.path.join(GAME_DIR, "images")
 
 # evennia-ai-image-generator: FLUX.2 REST backend configuration
-# The endpoint is the FLUX.2 server on spark-c8ad. Change the URL here
-# to switch backends.
+# Set the FLUX2_REST_URL env var to point to your FLUX.2 REST server.
 EVENNIA_AI_IMAGE_GENERATOR_CONFIG = {
     "backend": {
         "backend": "flux2_rest",
         "options": {
-            "server_url": os.getenv("FLUX2_REST_URL", "http://169.254.209.73:8190"),
+            "server_url": os.getenv("FLUX2_REST_URL", "http://127.0.0.1:8190"),
             "output_dir": "generated",
             "media_url_base": os.getenv(
                 "MEDIA_URL_BASE",

@@ -24,9 +24,8 @@ def _get_backend() -> Any | None:
     try:
         from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
 
-        # The FLUX.2 REST server runs on spark-c8ad (169.254.209.73:8190)
         backend = Flux2RestBackend(
-            server_url=os.getenv("FLUX2_REST_URL", "http://169.254.209.73:8190"),
+            server_url=os.getenv("FLUX2_REST_URL", "http://127.0.0.1:8190"),
             output_dir="generated",
             media_url_base=os.getenv(
                 "MEDIA_URL_BASE",
