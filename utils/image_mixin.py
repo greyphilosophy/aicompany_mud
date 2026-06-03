@@ -5,8 +5,8 @@ ImageMixin for Evennia typeclasses.
 Centralized image display: any room or object that inherits this mixin
 automatically appends its generated image URL to its description.
 
-Image generation is triggered by subclass overrides (e.g., SmartRoom
-triggers on description rewrites and prop creation).
+Image generation is triggered by shorthand helpers that delegate to
+utils/image_generation.py so all backend configuration lives in one place.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class ImageMixin:
         _trigger_room_image(): called when a room image should be generated
         _trigger_object_image(obj): called when an object image should be generated
 
-    The actual generation is done via the evennia_ai_image_generator package.
+    The actual generation is done via utils/image_generation.py.
     """
 
     # Image generation settings
@@ -52,9 +52,6 @@ class ImageMixin:
     def _can_trigger_image(self) -> bool:
         """Check if we're past the cooldown."""
         import time
-        # Evennia's db handler returns None for missing attributes (not raising
-        # AttributeError), so getattr(..., default) doesn't fire. Check both
-        # missing and None explicitly.
         last = self.db._image_generation_last_ts
         if last is None:
             last = 0.0
@@ -62,72 +59,38 @@ class ImageMixin:
 
     def _trigger_image_generation(self, prompt: str, subject_type: str = "room") -> None:
         """
-        Trigger asynchronous image generation via the image generator backend.
+        Trigger asynchronous image generation via utils/image_generation.py.
 
-        This is the main hook — subclasses call this when they want an image.
-        The image URL gets stored in self.db.image_url and is automatically
-        appended to descriptions.
+        Delegates to the central helper so all backend configuration
+        lives in one place.
         """
         if not self.image_enabled:
             return
 
         if not self._can_trigger_image():
-            return  # Still in cooldown
+            return
 
         import time
         self.db._image_generation_last_ts = time.time()
 
-        # Generate asynchronously on a thread
         from twisted.internet.threads import deferToThread
 
         def _generate():
             try:
-                # Lazy import — allows graceful fallback when package is missing
-                try:
-                    from evennia_ai_image_generator.backend.comfyui_backend import (
-                        ComfyUIBackend,
-                    )
-                except ImportError:
-                    logger.debug("evennia_ai_image_generator not installed, skipping image gen")
-                    self.db.image_generating = False
-                    return None
+                from utils.image_generation import generate_room_image
 
-                backend = ComfyUIBackend(
-                    server_url="http://127.0.0.1:8188",
-                    scheduler="karras",
-                    sampler_name="euler",
-                    default_steps=20,
-                    default_cfg=7.5,
-                    output_dir="generated",
-                    media_url_base="https://game.test/media/generated",
-                    timeout_s=120.0,
-                    max_wait_s=600.0,
-                )
+                result = generate_room_image(prompt)
+                if result is not None:
+                    self.db.image_url = result
 
-                from evennia_ai_image_generator.backend.base import ImageGenerationRequest
-                result = backend.generate(
-                    ImageGenerationRequest(
-                        subject_type=subject_type,
-                        subject_key=self.key,
-                        prompt=prompt,
-                        negative_prompt="blurry, low-res, cartoon, text, watermark",
-                        mode="txt2img",
-                        width=1024,
-                        height=1024,
-                    )
-                )
-
-                # Store the result
-                self.db.image_url = result.image_url
                 self.db.image_generating = False
-                return result.image_url
+                return result
 
             except Exception as e:
                 logger.warning(f"[ImageMixin] Generation failed: {e}")
                 self.db.image_generating = False
                 return None
 
-        # Mark as in-flight
         self.db.image_generating = True
         deferToThread(_generate)
 
@@ -135,8 +98,8 @@ class ImageMixin:
         """
         Trigger an image for a child object (prop, creature, etc.).
 
-        The image is generated and stored on the *object*, not the room.
-        Uses the room's cooldown to avoid hammering ComfyUI.
+        Delegates to utils/image_generation.py so backend configuration
+        is centralized.
         """
         if not self._can_trigger_image():
             return
@@ -148,43 +111,21 @@ class ImageMixin:
 
         def _generate():
             try:
-                try:
-                    from evennia_ai_image_generator.backend.comfyui_backend import ComfyUIBackend
-                except ImportError:
-                    logger.debug("evennia_ai_image_generator not installed, skipping object image")
-                    return None
+                from utils.image_generation import generate_object_image
 
-                backend = ComfyUIBackend(
-                    server_url="http://127.0.0.1:8188",
-                    scheduler="karras",
-                    sampler_name="euler",
-                    default_steps=20,
-                    default_cfg=7.5,
-                    output_dir="generated",
-                    media_url_base="https://game.test/media/generated",
-                    timeout_s=120.0,
-                    max_wait_s=600.0,
+                shortdesc = getattr(obj.db, "shortdesc", "")
+                result = generate_object_image(
+                    object_key=obj.key,
+                    object_desc=getattr(obj.db, "desc", ""),
+                    shortdesc=shortdesc,
                 )
+                if result is not None:
+                    obj.db.image_url = result
 
-                prompt = getattr(obj.db, "shortdesc", "") or obj.key
-                from evennia_ai_image_generator.backend.base import ImageGenerationRequest
-                result = backend.generate(
-                    ImageGenerationRequest(
-                        subject_type="object",
-                        subject_key=obj.key,
-                        prompt=prompt,
-                        negative_prompt="blurry, low-res, cartoon, text, watermark",
-                        mode="txt2img",
-                        width=1024,
-                        height=1024,
-                    )
-                )
-
-                obj.db.image_url = result.image_url
-                return result.image_url
+                return result
 
             except Exception as e:
-                logger.warning(f"[ImageMixin] Object image failed for #{obj.dbref}: {e}")
+                logger.warning(f"[ImageMixin] Object image failed: {e}")
                 return None
 
         deferToThread(_generate)

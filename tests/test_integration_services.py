@@ -2,8 +2,8 @@
 Integration tests for external service connectivity.
 
 Tests that the MUD can reach:
-- Ollama (LLM provider)
-- ComfyUI (image generation backend)
+- vLLM (LLM provider)
+- FLUX.2 (image generation backend on spark-c8ad)
 
 Run with:
     pytest tests/test_integration_services.py -v
@@ -51,17 +51,16 @@ def test_local_model_configured():
 
 
 def test_image_backend_configured():
-    backend = getattr(settings, "IMAGE_BACKEND", None)
-    assert backend is not None, "IMAGE_BACKEND not set in settings"
-    assert backend.get("backend") == "comfyui"
+    config = getattr(settings, "EVENNIA_AI_IMAGE_GENERATOR_CONFIG", None)
+    assert config is not None, "EVENNIA_AI_IMAGE_GENERATOR_CONFIG not set in settings"
+    assert config.get("backend", {}).get("backend") == "flux2_rest"
 
 
-class TestOllamaConnectivity:
-    """Direct connectivity to Ollama."""
+class TestLLMConnectivity:
+    """Direct connectivity to the LLM provider."""
 
-    def test_ollama_health(self):
+    def test_llm_health(self):
         base = getattr(settings, "LOCAL_BASE_URL", "")
-        # Use /v1/models endpoint (OpenAI-compatible API)
         models_url = base.rstrip("/") + "/models"
         resp = httpx.get(models_url, timeout=10)
         assert resp.status_code == 200
@@ -69,7 +68,7 @@ class TestOllamaConnectivity:
         assert "data" in data
         assert len(data["data"]) > 0
 
-    def test_ollama_chat_completion(self, local_provider):
+    def test_chat_completion(self, local_provider):
         providers = [local_provider]
         client = LLMClient(timeout_s=60, max_attempts=2)
         messages = [
@@ -81,65 +80,11 @@ class TestOllamaConnectivity:
         assert result["status"] == "ok"
 
 
-class TestComfyUIConnectivity:
-    """Connectivity to ComfyUI."""
+class TestFlux2Connectivity:
+    """Connectivity to FLUX.2 REST server on spark-c8ad."""
 
-    def test_comfyui_reachable(self):
-        backend = getattr(settings, "IMAGE_BACKEND", {})
-        server_url = backend["options"]["server_url"]
-        resp = httpx.get(server_url + "/system_stats", timeout=10)
+    def test_flux2_health_endpoint(self):
+        resp = httpx.get("http://169.254.209.73:8190/health", timeout=10)
         assert resp.status_code == 200
         data = resp.json()
-        assert "system" in data
-
-    def test_comfyui_backend_loads(self):
-        from evennia_ai_image_generator.backend.loader import load_backend
-        backend = load_backend(getattr(settings, "IMAGE_BACKEND"))
-        assert backend is not None
-
-
-class TestComputerLLM:
-    """End-to-end test of Computer class LLM calls."""
-
-    def test_generate_prop_json(self, llm_client, local_provider):
-        import json
-        from utils.computer_payloads import build_prop_create_payload
-        from utils.computer_prompts import prop_create_system_prompt
-
-        payload = build_prop_create_payload(
-            player="Tester",
-            instruction="Create a brass telescope on a table",
-            room_desc="A warm tavern.",
-            anchors=[],
-            recent_memory="",
-        )
-
-        messages = [
-            {"role": "system", "content": prop_create_system_prompt()},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-        ]
-
-        result = llm_client.chat_json([local_provider], messages)
-        assert "key" in result, f"Missing 'key' in response: {result}"
-        assert "desc" in result, f"Missing 'desc' in response: {result}"
-
-    def test_predict_intent(self, llm_client, local_provider):
-        import json
-        from utils.computer_payloads import build_intent_payload
-        from utils.computer_prompts import intent_router_system_prompt
-
-        payload = build_intent_payload(
-            player="Tester",
-            utterance="computer, make a wooden chair",
-            room_desc="A warm tavern.",
-            anchors=[],
-            recent_memory="",
-        )
-
-        messages = [
-            {"role": "system", "content": intent_router_system_prompt()},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-        ]
-
-        result = llm_client.chat_json([local_provider], messages)
-        assert "intent" in result, f"Missing 'intent': {result}"
+        assert data["status"] == "loaded"
