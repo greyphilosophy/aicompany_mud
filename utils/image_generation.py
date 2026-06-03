@@ -32,7 +32,7 @@ def _get_backend() -> Any | None:
             ),
             output_dir="generated",
             default_steps=28,
-            timeout_s=180.0,
+            timeout_s=600.0,
         )
         _backend_cache = backend
         return backend
