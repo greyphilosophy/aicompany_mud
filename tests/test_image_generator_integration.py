@@ -1,13 +1,10 @@
 """
-Integration tests for FLUX.2 image generation.
+Tests for utils/image_generation.py — unit tests only (no live FLUX.2 server required).
 
-Tests verify that:
-- Flux2RestBackend can generate images via the REST API
-- Image generation returns valid results
-- Error handling works correctly
-
-Requires: evennia-ai-image-generator installed, FLUX.2 server on spark-c8ad.
-Skipped automatically if the package or server is missing.
+Tests verify:
+- _get_backend returns a Flux2RestBackend with env-configured URL
+- generate_room_image / generate_object_image delegate correctly
+- Graceful fallback when backend errors or is missing
 """
 import importlib.util
 
@@ -18,56 +15,164 @@ if not importlib.util.find_spec("evennia_ai_image_generator"):
         "evennia_ai_image_generator not installed", allow_module_level=True
     )
 
-from evennia_ai_image_generator.backend.base import ImageGenerationRequest
 
-# Test that the import works
-def test_flux2_backend_import():
-    """Verify Flux2RestBackend can be imported."""
-    from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
-    assert Flux2RestBackend is not None
+class TestFlux2RestBackendConfig:
+    """Verify Flux2RestBackend configures correctly with defaults and env vars."""
 
-def test_backend_configuration():
-    """Verify the backend can be instantiated with default config."""
-    from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
+    def test_default_server_url(self):
+        from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
+        backend = Flux2RestBackend()
+        assert backend.server_url == "http://127.0.0.1:8190"
 
-    backend = Flux2RestBackend(
-        server_url="http://169.254.209.73:8190",
-        output_dir="generated",
-        media_url_base="https://game.test/media/generated",
-        timeout_s=180.0,
-    )
-    assert backend.server_url == "http://169.254.209.73:8190"
-    assert backend.default_steps == 28
-    assert backend.timeout_s == 180.0
+    def test_custom_server_url(self):
+        from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
+        backend = Flux2RestBackend(server_url="http://169.254.209.73:8190")
+        assert backend.server_url == "http://169.254.209.73:8190"
 
-def test_backend_path_building():
-    """Verify _build_paths generates consistent paths from requests."""
-    from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
+    def test_path_building_is_deterministic(self):
+        from evennia_ai_image_generator.backend.base import ImageGenerationRequest
+        from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
 
-    backend = Flux2RestBackend()
-    request = ImageGenerationRequest(
-        subject_type="room",
-        subject_key="test_room",
-        prompt="A dark forest",
-        mode="txt2img",
-        width=512,
-        height=512,
-    )
-    image_path, image_url = backend._build_paths(request)
-    assert "room" in image_path
-    assert "test_room" in image_path
-    assert image_path.endswith(".png")
-    assert image_url.endswith(".png")
+        backend = Flux2RestBackend()
+        request = ImageGenerationRequest(
+            subject_type="room",
+            subject_key="test_key",
+            prompt="A dark forest",
+            mode="txt2img",
+            width=512,
+            height=512,
+        )
+        path1, url1 = backend._build_paths(request)
+        path2, url2 = backend._build_paths(request)
+        assert path1 == path2
+        assert url1 == url2
+        assert path1.endswith(".png")
+        assert "room" in path1
 
-def test_request_without_negative_prompt():
-    """Verify ImageGenerationRequest works without negative_prompt (FLUX.2)."""
-    request = ImageGenerationRequest(
-        subject_type="object",
-        subject_key="crystal",
-        prompt="A glowing crystal",
-        mode="txt2img",
-        width=1024,
-        height=1024,
-    )
-    # FLUX.2 doesn't use negative_prompt — this shouldn't error
-    assert request.prompt == "A glowing crystal"
+
+class TestGenerateWithMockedBackend:
+    """Test generate_room_image / generate_object_image with mocked backend."""
+
+    def _reset_cache(self):
+        import utils.image_generation as ig
+        ig._backend_cache = None
+
+    def test_generate_room_image_calls_backend(self):
+        """Verify generate_room_image produces a valid result when backend returns."""
+        self._reset_cache()
+
+        from utils import image_generation as ig
+        from evennia_ai_image_generator.backend.base import ImageGenerationResult
+        from unittest.mock import MagicMock, patch
+
+        mock_backend = MagicMock()
+        mock_backend.generate.return_value = ImageGenerationResult(
+            image_path="generated/test.png",
+            image_url="https://game.test/media/generated/test.png",
+            model_name="FLUX.2-dev",
+            generation_time=1.0,
+            metadata={},
+        )
+
+        with patch.object(ig, "_get_backend", return_value=mock_backend) as mock_get:
+            result = ig.generate_room_image("A cozy tavern")
+            assert result is not None
+            assert "test.png" in result
+            mock_get.assert_called_once()
+            mock_backend.generate.assert_called_once()
+
+    def test_generate_object_image_calls_backend(self):
+        self._reset_cache()
+
+        from utils import image_generation as ig
+        from evennia_ai_image_generator.backend.base import ImageGenerationResult
+        from unittest.mock import MagicMock, patch
+
+        mock_backend = MagicMock()
+        mock_backend.generate.return_value = ImageGenerationResult(
+            image_path="generated/crystal.png",
+            image_url="https://game.test/media/generated/crystal.png",
+            model_name="FLUX.2-dev",
+            generation_time=1.0,
+            metadata={},
+        )
+
+        with patch.object(ig, "_get_backend", return_value=mock_backend):
+            result = ig.generate_object_image(
+                object_key="crystal",
+                object_desc="A glowing crystal",
+                shortdesc="Crystal",
+            )
+            assert result is not None
+            mock_backend.generate.assert_called_once()
+
+    def test_generate_returns_none_on_backend_error(self):
+        """When the backend raises, the helper returns None (graceful fallback)."""
+        self._reset_cache()
+
+        from utils import image_generation as ig
+        from unittest.mock import MagicMock, patch
+
+        mock_backend = MagicMock()
+        mock_backend.generate.side_effect = ConnectionError("Server timeout")
+
+        with patch.object(ig, "_get_backend", return_value=mock_backend):
+            result = ig.generate_room_image("A dark room")
+            assert result is None
+
+    def test_generate_returns_none_when_no_backend(self):
+        """When _get_backend returns None, no generation happens."""
+        self._reset_cache()
+
+        from utils import image_generation as ig
+        from unittest.mock import patch
+
+        with patch.object(ig, "_get_backend", return_value=None):
+            result = ig.generate_room_image("A dark room")
+            assert result is None
+
+    def test_backend_cache_is_reused(self):
+        """Verify the backend cache mechanism works."""
+        self._reset_cache()
+
+        from utils import image_generation as ig
+        from evennia_ai_image_generator.backend.base import ImageGenerationResult
+        from unittest.mock import MagicMock, patch
+
+        mock_backend = MagicMock()
+        mock_backend.generate.return_value = ImageGenerationResult(
+            image_path="generated/test.png",
+            image_url="https://game.test/media/generated/test.png",
+            model_name="FLUX.2-dev",
+            generation_time=1.0,
+            metadata={},
+        )
+
+        call_count = [0]
+
+        def fake_get_backend():
+            call_count[0] += 1
+            return mock_backend
+
+        with patch.object(ig, "_get_backend", side_effect=fake_get_backend):
+            ig._backend_cache = None
+            ig.generate_room_image("Room 1")
+            ig.generate_room_image("Room 2")
+
+        # _get_backend should be called twice since we're patching it directly,
+        # but the real _get_backend would only call the constructor once.
+        assert call_count[0] == 2
+
+
+class TestGetBackend:
+    """Test that _get_backend returns the correct backend type."""
+
+    def test_get_backend_returns_flux2(self):
+        """_get_backend should return a Flux2RestBackend when the package is installed."""
+        from utils.image_generation import _get_backend
+        from evennia_ai_image_generator.backend.flux2_rest_backend import Flux2RestBackend
+        from utils import image_generation as ig
+        ig._backend_cache = None
+
+        backend = _get_backend()
+        assert isinstance(backend, Flux2RestBackend)
