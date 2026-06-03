@@ -412,6 +412,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
                     new_desc = new_desc.strip()
                     target.db.desc = new_desc
 
+                # Trigger a fresh object image after the edit — the old image is likely stale.
+                if self.image_enabled and self._can_trigger_image():
+                    self._trigger_object_image(target)
+
                 self.msg_contents(
                     f"|mReality tweaks itself.|n {target.key} now looks a little different."
                 )
