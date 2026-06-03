@@ -69,7 +69,7 @@ class SmartRoom(ImageMixin, DefaultRoom):
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-    LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "30"))
+    LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "180"))
 
     # ----------------------------
     # Init

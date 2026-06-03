@@ -241,7 +241,7 @@ def build_default_client_from_env() -> LLMClient:
     """
     Build a client with env-configurable knobs.
     """
-    timeout_s = float(os.getenv("LLM_TIMEOUT_S", "120"))
+    timeout_s = float(os.getenv("LLM_TIMEOUT_S", "180"))
     max_attempts = int(os.getenv("LLM_MAX_ATTEMPTS", "2"))
     temperature = float(os.getenv("LLM_TEMPERATURE", "0.6"))
     # Comma-separated model IDs that should omit temperature
