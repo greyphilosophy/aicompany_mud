@@ -13,9 +13,10 @@ to add/remove commands from the default lineup. You can create your
 own cmdsets by inheriting from them or directly from `evennia.CmdSet`.
 
 """
-
 from evennia import default_cmds
 from commands.dig import CmdDigSmart
+from commands.time import CmdTime
+from commands.journal import CmdJournal
 
 class CharacterCmdSet(default_cmds.CharacterCmdSet):
     """
@@ -35,6 +36,8 @@ class CharacterCmdSet(default_cmds.CharacterCmdSet):
         # any commands you add below will overload the default ones.
         #
         self.add(CmdDigSmart())
+        self.add(CmdTime())
+        self.add(CmdJournal())
 
 
 class AccountCmdSet(default_cmds.AccountCmdSet):
