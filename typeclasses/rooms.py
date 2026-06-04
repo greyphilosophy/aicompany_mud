@@ -20,6 +20,7 @@ from utils.llm_client import (
     build_default_client_from_env,
 )
 from utils.computer import Computer
+from utils.op_queue import PendingOps
 from utils.room_director import build_snapshot, generate_from_snapshot
 from utils.room_object_query import (
     iter_notable_props,
@@ -423,7 +424,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
 
             def _on_fail(failure):
                 logger.log_err(f"[SmartRoom] edit failure:\n{failure.getTraceback()}")
-                self.msg_contents("|rThe room hesitates.|n The edit doesn't take. (Try again.)")
+                # Enqueue for retry
+                pending = PendingOps(self)
+                pending.enqueue("edit", instruction, speaker.key, target_ref=target.dbref, target_name=target.key)
+                self.msg_contents("|rThe room hesitates.|n Retrying in the background...")
                 return None
 
             d.addCallback(_on_ok)
@@ -475,7 +479,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
 
             def _on_fail(failure):
                 logger.log_err(f"[SmartRoom] LLM/manifestation failure:\n{failure.getTraceback()}")
-                self.msg_contents("|rThe room sputters.|n The manifestation fails. (Try again in a moment.)")
+                # Enqueue for retry
+                pending = PendingOps(self)
+                pending.enqueue("create", instruction, speaker.key)
+                self.msg_contents("|rThe room sputters.|n Retrying in the background...")
                 return None
 
             d.addCallback(_on_ok)
