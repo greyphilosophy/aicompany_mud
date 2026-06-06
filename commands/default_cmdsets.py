@@ -16,11 +16,12 @@ own cmdsets by inheriting from them or directly from `evennia.CmdSet`.
 
 from evennia import default_cmds
 from commands.dig import CmdDigSmart
+from commands.read import CmdRead
 
 class CharacterCmdSet(default_cmds.CharacterCmdSet):
     """
     The `CharacterCmdSet` contains general in-game commands like `look`,
-    `get`, etc available on in-game Character objects. It is merged with
+    `get` etc available on in-game Character objects. It is merged with
     the `AccountCmdSet` when an Account puppets a Character.
     """
 
@@ -35,6 +36,7 @@ class CharacterCmdSet(default_cmds.CharacterCmdSet):
         # any commands you add below will overload the default ones.
         #
         self.add(CmdDigSmart())
+        self.add(CmdRead())
 
 
 class AccountCmdSet(default_cmds.AccountCmdSet):
