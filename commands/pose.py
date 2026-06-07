@@ -16,7 +16,6 @@ Pose state is stored on the character object and displayed in room look output.
 """
 
 from evennia import Command
-from evennia.utils import utils
 
 # Allowed preset poses with their display text
 POSE_PRESETS = {
