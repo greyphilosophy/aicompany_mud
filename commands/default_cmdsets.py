@@ -17,6 +17,7 @@ own cmdsets by inheriting from them or directly from `evennia.CmdSet`.
 from evennia import default_cmds
 from commands.dig import CmdDigSmart
 from commands.help import CmdHelp
+from commands.dream import CmdDream
 
 class CharacterCmdSet(default_cmds.CharacterCmdSet):
     """
@@ -37,6 +38,7 @@ class CharacterCmdSet(default_cmds.CharacterCmdSet):
         #
         self.add(CmdDigSmart())
         self.add(CmdHelp())
+        self.add(CmdDream())
 
 
 class AccountCmdSet(default_cmds.AccountCmdSet):
