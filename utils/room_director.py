@@ -76,6 +76,8 @@ def generate_from_snapshot(client, providers, snapshot: dict) -> dict:
     messages = build_messages(snapshot)
     from evennia.utils import logger
     logger.log_info(f"[Director] Calling LLM with {len(messages)} messages; providers={[p.label for p in providers]}")
+    # Log the actual user payload for debugging
+    logger.log_info(f"[Director] User payload: {messages[1]['content']}")
     data = client.chat_json(providers, messages)
 
     desc = str(data.get("desc") or "").strip()
