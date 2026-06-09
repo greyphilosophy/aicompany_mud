@@ -105,6 +105,10 @@ class LLMClient:
             "max_tokens": 2048,
         }
 
+        # Disable thinking for Qwen3 models to prevent JSON leakage
+        if "qwen3" in (provider.model or "").lower():
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+
         # Temperature quirks: omit if model rejects non-default temperature.
         if provider.model not in self.no_temperature_models:
             payload["temperature"] = self.temperature
