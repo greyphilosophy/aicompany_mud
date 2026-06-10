@@ -31,8 +31,8 @@ Messages = List[Dict[str, str]]
 @dataclass(frozen=True)
 class LLMProvider:
     label: str
-    base_url: str
-    model: str
+    base_url: Optional[str] = None
+    model: Optional[str] = None
     api_key: Optional[str] = None
 
 
@@ -92,7 +92,18 @@ class LLMClient:
     def _call_chat_completions_json(self, provider: LLMProvider, messages: Messages) -> Optional[JsonDict]:
         """
         Returns parsed JSON dict or None on exhaustion.
+        Fails fast on None/empty base_url or model.
         """
+        # Fail fast: validate provider before building URL
+        if not provider.base_url:
+            raise ValueError(
+                f"[{provider.label}] base_url is None/empty — check LOCAL_BASE_URL in settings"
+            )
+        if not provider.model:
+            raise ValueError(
+                f"[{provider.label}] model is None/empty — check LOCAL_MODEL in settings"
+            )
+
         url = f"{provider.base_url.rstrip('/')}/chat/completions"
 
         headers = {"Content-Type": "application/json"}
@@ -113,6 +124,15 @@ class LLMClient:
         if provider.model not in self.no_temperature_models:
             payload["temperature"] = self.temperature
 
+        # Log the full request payload (compact)
+        logger.log_info(
+            f"[LLM:{provider.label}] REQUEST model={provider.model!r} "
+            f"temp={payload.get('temperature')} "
+            f"chat_template_kwargs={payload.get('chat_template_kwargs')} "
+            f"max_tokens={payload.get('max_tokens')} "
+            f"messages_count={len(messages)}"
+        )
+
         last_err = None
         for attempt in range(1, self.max_attempts + 1):
             try:
@@ -123,13 +143,18 @@ class LLMClient:
                     body_snip = (r.text or "")[:1200]
                     logger.log_err(
                         f"[LLM:{provider.label}] HTTP {r.status_code} attempt {attempt}. "
-                        f"Model={provider.model!r} Temp={'(omitted)' if 'temperature' not in payload else payload.get('temperature')!r}. "
                         f"Body: {body_snip!r}"
                     )
                     last_err = f"HTTP {r.status_code}"
                 else:
                     data = r.json()
                     content = data["choices"][0]["message"]["content"]
+                    
+                    # Log successful response (compact)
+                    logger.log_info(
+                        f"[LLM:{provider.label}] RESPONSE status={r.status_code} "
+                        f"content[:400]={content[:400]!r}"
+                    )
                     parsed = self._extract_json_from_text(content, label=provider.label)
                     if parsed is not None:
                         # Validate that responses to prop_create and prop_edit prompts
