@@ -171,7 +171,7 @@ class TestInflightSafetyNet(unittest.TestCase):
     """Test the inflight flag safety net logic."""
 
     def test_safety_net_delays_and_unlocks(self):
-        """The safety net should delay 120s then unlock inflight flag."""
+        """The safety net should delay 125s then unlock inflight flag."""
         import os
         src_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
@@ -181,7 +181,7 @@ class TestInflightSafetyNet(unittest.TestCase):
             source = f.read()
 
         # Verify the safety delay pattern exists
-        self.assertIn("delay(120.0", source)
+        self.assertIn("delay(125.0", source)
         self.assertIn("_unlock_desc_rewrite", source)
 
     def test_unlock_method_sets_flag_false(self):

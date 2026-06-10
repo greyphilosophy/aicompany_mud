@@ -196,10 +196,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
         self.db.last_desc_rewrite_ts = now
 
         # NEW: subtle “thinking” cue
-        # Safety net: if the LLM call hangs, unlock the inflight flag after 120s
-        # (generate_room_desc_safe times out at 120s + 1 attempt)
+        # Safety net: if the LLM call hangs, unlock the inflight flag after 125s
+        # (generate_room_desc_safe times out at 120s + 5s buffer to avoid racing the real callback)
         # Store the handle so we can cancel it when the rewrite completes normally.
-        self.ndb.safe_unlock_handle = delay(120.0, self._unlock_desc_rewrite)
+        self.ndb.safe_unlock_handle = delay(125.0, self._unlock_desc_rewrite)
 
         self.msg_contents("|mThe set shimmers, reconsidering itself…|n")
         computer = Computer(self)
