@@ -31,6 +31,7 @@ from utils.room_object_query import (
 from utils.room_targeting import resolve_edit_target, instruction_mentions_target
 from utils.room_text import normalize_say_message, is_computer_addressed, extract_computer_instruction
 from utils.image_mixin import ImageMixin
+from utils.object_classification import apply_classification
 
 
 class Room(DefaultRoom):
@@ -195,9 +196,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
         self.db.last_desc_rewrite_ts = now
 
         # NEW: subtle “thinking” cue
-        # Safety net: if the LLM call hangs, unlock the inflight flag after 125s
+        # Safety net: if the LLM call hangs, unlock the inflight flag after 120s
         # (generate_room_desc_safe times out at 120s + 1 attempt)
-        safe_unlock = delay(125.0, self._unlock_desc_rewrite)
+        # Store the handle so we can cancel it when the rewrite completes normally.
+        self.ndb.safe_unlock_handle = delay(120.0, self._unlock_desc_rewrite)
 
         self.msg_contents("|mThe set shimmers, reconsidering itself…|n")
         computer = Computer(self)
@@ -231,6 +233,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
                     self.msg_contents("|mThe shimmering fades.|n")
 
             finally:
+                # Cancel the safety-net delay so it doesn't fire after us.
+                if hasattr(self.ndb, "safe_unlock_handle"):
+                    self.ndb.safe_unlock_handle.cancel()
+                    del self.ndb.safe_unlock_handle
                 self.ndb.desc_rewrite_inflight = False
                 # Check if another rewrite was queued while this one ran
                 if self.ndb.desc_rewrite_pending:
@@ -238,6 +244,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
                     delay(0.2, self._start_desc_rewrite)
 
         def _on_fail(failure):
+            # Cancel the safety-net delay
+            if hasattr(self.ndb, "safe_unlock_handle"):
+                self.ndb.safe_unlock_handle.cancel()
+                del self.ndb.safe_unlock_handle
             self.ndb.desc_rewrite_inflight = False
             logger.log_err(f"[SmartRoom] Director rewrite failure:\n{failure.getTraceback()}")
             self.msg_contents("|mThe shimmering fades.|n")
@@ -502,6 +512,8 @@ class SmartRoom(ImageMixin, DefaultRoom):
                     desc = f"A newly manifested {remainder.strip()}."
 
                 obj = self._manifest_prop(key=key[:60], shortdesc=shortdesc[:140], desc=desc)
+                # Apply object classification so abilities are discoverable
+                apply_classification(obj, propdata.get("object_type"), propdata.get("properties"))
                 self.msg_contents(f"|mThe room hums.|n {obj.db.shortdesc or obj.key} appears at {speaker.key}'s request.")
                 self._schedule_desc_rewrite()
 
