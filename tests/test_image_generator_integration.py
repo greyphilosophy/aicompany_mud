@@ -10,6 +10,8 @@ import importlib.util
 
 import pytest
 
+from utils.image_paths import build_generated_image_url
+
 if not importlib.util.find_spec("evennia_ai_image_generator"):
     pytest.skip(
         "evennia_ai_image_generator not installed", allow_module_level=True
@@ -68,7 +70,7 @@ class TestGenerateWithMockedBackend:
         mock_backend = MagicMock()
         mock_backend.generate.return_value = ImageGenerationResult(
             image_path="generated/test.png",
-            image_url="https://game.test/media/generated/test.png",
+            image_url=build_generated_image_url("test.png"),
             model_name="FLUX.2-dev",
             generation_time=1.0,
             metadata={},
@@ -91,7 +93,7 @@ class TestGenerateWithMockedBackend:
         mock_backend = MagicMock()
         mock_backend.generate.return_value = ImageGenerationResult(
             image_path="generated/crystal.png",
-            image_url="https://game.test/media/generated/crystal.png",
+            image_url=build_generated_image_url("crystal.png"),
             model_name="FLUX.2-dev",
             generation_time=1.0,
             metadata={},
@@ -142,7 +144,7 @@ class TestGenerateWithMockedBackend:
         mock_backend = MagicMock()
         mock_backend.generate.return_value = ImageGenerationResult(
             image_path="generated/test.png",
-            image_url="https://game.test/media/generated/test.png",
+            image_url=build_generated_image_url("test.png"),
             model_name="FLUX.2-dev",
             generation_time=1.0,
             metadata={},

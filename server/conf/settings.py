@@ -27,6 +27,9 @@ put secret game- or server-specific settings in secret_settings.py.
 # Use the defaults from Evennia unless explicitly overridden
 from evennia.settings_default import *
 
+import os
+from pathlib import Path
+
 ######################################################################
 # Evennia base server config
 ######################################################################
@@ -36,6 +39,11 @@ SERVERNAME = "aicompany_mud"
 ALLOWED_HOSTS = ["pr1357.ddns.net"]
 BASE_EXIT_TYPECLASS = "typeclasses.exits.Exit"
 INSTALLED_APPS += ["evennia_ai_image_generator"]
+MEDIA_URL_BASE = os.getenv("MEDIA_URL_BASE", "/media/generated")
+MUD_MEDIA_DIR = os.getenv(
+    "MUD_MEDIA_DIR",
+    str(Path(__file__).resolve().parents[2] / "server" / ".static" / "media" / "generated"),
+)
 
 ######################################################################
 # Settings given in secret_settings.py override those in this file.

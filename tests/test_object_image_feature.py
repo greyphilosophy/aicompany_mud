@@ -202,6 +202,7 @@ class TestImageMixinDescriptionHelpers:
                 )
 
         obj = TestObj()
+        obj._is_image_stale = lambda url: False
         result = obj.get_description_with_image()
         assert "cat.png" in result
         assert "brass cat idol" in result
@@ -241,12 +242,14 @@ class TestObjectSourceCodeVerification:
 
     def test_object_get_display_desc_triggers_image_generation(self):
         """Object.get_display_desc should call _trigger_image_generation
-        when no image_url exists and cooldown allows."""
+        when no image_url exists and cooldown allows, and should surface
+        a visible generating message."""
         import inspect
         from typeclasses.objects import Object
         source = inspect.getsource(Object.get_display_desc)
         assert "_trigger_image_generation" in source
-        assert "_can_trigger_image" in source
+        assert "|yImage: generating...|n" in source
+        assert "_trigger_own_image" not in source
 
     def test_object_get_display_desc_checks_image_url(self):
         """Object.get_display_desc should check for image_url."""
