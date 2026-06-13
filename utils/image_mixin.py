@@ -77,9 +77,16 @@ class ImageMixin:
 
         def _generate():
             try:
-                from utils.image_generation import generate_room_image
-
-                result = generate_room_image(prompt)
+                if subject_type == "object":
+                    from utils.image_generation import generate_object_image
+                    result = generate_object_image(
+                        object_key=self.key,
+                        object_desc=getattr(self.db, "desc", ""),
+                        shortdesc=getattr(self.db, "shortdesc", ""),
+                    )
+                else:
+                    from utils.image_generation import generate_room_image
+                    result = generate_room_image(prompt)
                 if result is not None:
                     self.db.image_url = result
 

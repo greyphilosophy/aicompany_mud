@@ -17,7 +17,7 @@ This codebase builds on the Evennia MUD framework and adds:
   - Trigger room rewrites based on changes and conversation
 - A **local-first LLM workflow**, with optional fallback to a remote API
 - **AI-generated images** for rooms and objects via FLUX.2 REST
-  - `regen` command regenerates images for the current room or any object
+  - `regen` command regenerates images for the current room or any object (builder lock)
   - Images are stored on objects and displayed automatically in `look` output
 
 If no API keys are configured, the game still runs normally and will rely only on locally available models.
@@ -57,10 +57,7 @@ No external API keys are required to run the game.
 If you *do* want to enable a remote LLM fallback, set the following environment variable:
 
 ```
-export OPENAI_API_KEY="***"
-```
-
-A file named `server/conf/secret_settings.py` may exist locally, but it is intentionally not tracked by git.
+export OPENAI_API_KEY=*** file named `server/conf/secret_settings.py` may exist locally, but it is intentionally not tracked by git.
 If absent, the game will continue to operate using local models only.
 
 ---
@@ -70,25 +67,17 @@ If absent, the game will continue to operate using local models only.
 If you want AI-generated images for rooms and objects:
 
 1. **Set up a FLUX.2 REST server** on a separate machine or container.
-2. Configure the backend in `server/conf/secret_settings.py` (copy from the `.example` file):
+2. Configure the backend by setting the `FLUX2_SERVER_URL` environment variable:
 
-```python
-EVENNIA_AI_IMAGE_GENERATOR_CONFIG = {
-    "backend": {
-        "backend": "flux2_rest",
-        "options": {
-            "server_url": "http://your-flux-server:8190",
-            "output_dir": "generated",
-            "media_url_base": "https://your-domain.com/media/generated",
-        },
-    },
-}
+```bash
+export FLUX2_SERVER_URL="http://your-flux-server:8190"
 ```
 
-3. In-game, use the `regen` command:
+The default server URL is `http://169.254.209.73:8190` (link-local on the DGX Spark GPU node).
+
+3. In-game, use the `regen` command (requires **builder** lock):
    - `regen` — regenerate image for current room
-   - `regen keycard` — regenerate image for an object by name
-   - `regen #42` — regenerate image for an object by dbref
+   - `regen keycard` — regenerate image for an object by name (current room only)
 
 Images are automatically shown when you `look` at the room or object.
 
@@ -114,7 +103,8 @@ Edit `secret_settings.py` and adjust values for your environment:
 - `SECRET_KEY` — Django secret key (generate with `python -c "from django.core.secretkey import get_secret_key; print(get_secret_key())"`)
 - `LOCAL_BASE_URL` / `LOCAL_MODEL` — your LLM endpoint and model
 - `STARTING_POSITION_ID` — dbref of the starting room
-- `EVENNIA_AI_IMAGE_GENERATOR_CONFIG` — FLUX.2 backend config (if using images)
+
+For image generation, set the `FLUX2_SERVER_URL` environment variable (see above).
 
 ### 3) Initialize and start
 

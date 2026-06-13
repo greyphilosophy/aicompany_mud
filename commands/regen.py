@@ -3,9 +3,10 @@
 Regenerate an AI image for a room or object.
 
 Usage:
-  regen            - Regenerate image for current room
-  regen name       - Regenerate image for a named object
-  regen #dbref     - Regenerate image for an object by dbref
+  regen          - Regenerate image for current room
+  regen name     - Regenerate image for a named object (current room only)
+
+Requires builder lock. Does not accept dbref arguments (local search only).
 """
 
 from evennia import Command
@@ -15,19 +16,20 @@ class CmdRegen(Command):
     """
     Regenerate an AI image for the current room or a named object.
 
+    Only searches for objects in the current room. Requires builder
+    privilege to avoid resource burn from unprivileged players.
+
     Usage:
-      regen           - Generate image for current room
-      regen name      - Generate image for an object by name
-      regen #dbref    - Generate image for an object by dbref
+      regen          - Generate image for current room
+      regen keycard  - Generate image for an object by name
 
     Examples:
       regen
       regen keycard
-      regen #42
     """
     key = "regen"
     aliases = ["regenerate"]
-    locks = "cmd:all()"
+    locks = "cmd:builder()"
     help_category = "Building"
 
     def _get_backend(self):
@@ -50,8 +52,8 @@ class CmdRegen(Command):
 
         try:
             from utils.image_generation import generate_room_image
-            # Build prompt from room key + description
-            desc = getattr(room, "description", None)
+            # Build prompt from room key + db.desc
+            desc = getattr(room.db, "desc", None)
             if desc:
                 desc = desc.split("\n\n")[0] if "\n\n" in desc else desc
             else:
@@ -68,31 +70,19 @@ class CmdRegen(Command):
             return f"Generation failed: {e}"
 
     def _generate_object(self, obj_ref: str):
-        """Generate an image for an object (by name or #dbref)."""
+        """Generate an image for an object in the current room."""
         backend = self._get_backend()
         if not backend:
             return "FLUX.2 server is not running or the backend is down."
 
-        # Resolve: #dbref is direct, otherwise search by name
-        if obj_ref.startswith("#") and obj_ref[1:].isdigit():
-            from evennia.utils.search import search_object
-            results = search_object(obj_ref)
-            if not results:
-                return f"No object found for dbref {obj_ref}."
-            obj = results[0]
-        else:
-            room = self.caller.location
-            if not room:
-                return "You are nowhere (no current room)."
-            # Search in room contents first, then global
-            obj = room.search(obj_ref)
-            if not obj:
-                from evennia.utils.search import search_object
-                results = search_object(obj_ref, typeclass="typeclasses.objects.Object")
-                if results:
-                    obj = results[0]
-                else:
-                    return f"No object named '{obj_ref}' found."
+        room = self.caller.location
+        if not room:
+            return "You are nowhere (no current room)."
+
+        # Search only in the current room (avoid global dbref resolution)
+        obj = room.search(obj_ref)
+        if not obj:
+            return f"No object named '{obj_ref}' found in this room."
 
         try:
             from utils.image_generation import generate_object_image
@@ -114,13 +104,6 @@ class CmdRegen(Command):
             self.caller.msg(result)
             return
 
-        # Argument provided: try it as an object reference
-        if args.startswith("#") and args[1:].isdigit():
-            # Direct dbref
-            result = self._generate_object(args)
-            self.caller.msg(result)
-            return
-
-        # Plain name — search for it
+        # Argument provided: search in current room only
         result = self._generate_object(args)
         self.caller.msg(result)
