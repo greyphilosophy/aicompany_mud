@@ -88,7 +88,6 @@ class ImageMixin:
                     )
                 else:
                     result = generate_room_image(prompt)
-
                 if result is not None:
                     self.db.image_url = result
 

@@ -13,6 +13,11 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.venv/
+venv/
+
+# --- Generated images ---
+generated/
 
 # --- Evennia / logs / runtime ---
 server/logs/
@@ -20,6 +25,7 @@ server/*.log
 server/*.pid
 server/*.sqlite3
 server/*.db3
+server/.static/
 server/game_template/  # if you ever generate template artifacts here (optional)
 
 # --- OS / editors ---

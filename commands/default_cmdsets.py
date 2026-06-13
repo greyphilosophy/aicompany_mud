@@ -17,6 +17,7 @@ own cmdsets by inheriting from them or directly from `evennia.CmdSet`.
 from evennia import default_cmds
 from commands.dig import CmdDigSmart
 from commands.drink import CmdDrink, CmdCheckAbilities
+from commands.regen import CmdRegen
 
 class CharacterCmdSet(default_cmds.CharacterCmdSet):
     """
@@ -38,6 +39,7 @@ class CharacterCmdSet(default_cmds.CharacterCmdSet):
         self.add(CmdDigSmart())
         self.add(CmdDrink())
         self.add(CmdCheckAbilities())
+        self.add(CmdRegen())
 
 
 class AccountCmdSet(default_cmds.AccountCmdSet):

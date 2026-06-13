@@ -38,6 +38,7 @@ from pathlib import Path
 SERVERNAME = "aicompany_mud"
 ALLOWED_HOSTS = ["pr1357.ddns.net"]
 BASE_EXIT_TYPECLASS = "typeclasses.exits.Exit"
+SERVE_MEDIA = True
 INSTALLED_APPS += ["evennia_ai_image_generator"]
 MEDIA_URL_BASE = os.getenv("MEDIA_URL_BASE", "/media/generated")
 MUD_MEDIA_DIR = os.getenv(

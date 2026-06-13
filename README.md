@@ -16,31 +16,37 @@ This codebase builds on the Evennia MUD framework and adds:
   - Pin and manage room/object facts
   - Trigger room rewrites based on changes and conversation
 - A **local-first LLM workflow**, with optional fallback to a remote API
+- **AI-generated images** for rooms and objects via FLUX.2 REST
+  - `regen` command regenerates images for the current room or any object (builder lock)
+  - Images are stored on objects and displayed automatically in `look` output
 
 If no API keys are configured, the game still runs normally and will rely only on locally available models.
 
 ---
 
 ## Repository Structure
+
 ```
 aicompany_mud/
-├── commands/ # Custom in-game commands
-├── server/ # Evennia server configuration (expected structure)
-├── typeclasses/ # Rooms, objects, characters, exits
-├── utils/ # LLM clients, room director, helpers
-├── web/ # Web client overrides (if any)
-├── world/ # Game content and prototypes
+├── commands/        # Custom in-game commands
+├── server/          # Evennia server configuration (expected structure)
+├── typeclasses/     # Rooms, objects, characters, exits
+├── utils/           # LLM clients, room director, helpers, image generation
+├── web/             # Web client overrides (if any)
+├── world/           # Game content and prototypes
 └── README.md
 ```
-The `server/` directory structure follows Evennia’s expectations and should not be reorganized without updating configuration.
+
+The `server/` directory structure follows Evennia's expectations and should not be reorganized without updating configuration.
 
 ---
 
 ## Requirements
 
-- Python (with a virtual environment recommended)
-- Evennia (`pip install evennia`)
-- A locally running OpenAI-compatible LLM server
+- **Python 3.12+** (with a virtual environment recommended)
+- **Evennia** (`pip install evennia`)
+- A locally running **OpenAI-compatible LLM server** (e.g., vLLM, LM Studio)
+- *(Optional)* **FLUX.2 REST image server** (on a separate machine or container)
 
 No external API keys are required to run the game.
 
@@ -50,43 +56,76 @@ No external API keys are required to run the game.
 
 If you *do* want to enable a remote LLM fallback, set the following environment variable:
 
-```
+```bash
 export OPENAI_API_KEY="your-key-here"
 ```
 
-A file named server/conf/secret_settings.py may exist locally, but it is intentionally not tracked by git.
-If absent, the game will continue to operate using local models only.
+A file named `server/conf/secret_settings.py` may exist locally, but it is intentionally not tracked by git.
+
+---
+
+## Optional: FLUX.2 Image Generation
+
+If you want AI-generated images for rooms and objects:
+
+1. **Set up a FLUX.2 REST server** on a separate machine or container.
+2. Configure the backend by setting the `FLUX2_SERVER_URL` environment variable:
+
+```bash
+export FLUX2_SERVER_URL="http://your-flux-server:8190"
+```
+
+The default server URL is `http://169.254.209.73:8190` (link-local on the DGX Spark GPU node).
+
+3. In-game, use the `regen` command (requires **builder** lock):
+   - `regen` — regenerate image for current room
+   - `regen keycard` — regenerate image for an object by name (current room only)
+
+Images are automatically shown when you `look` at the room or object.
 
 ---
 
 ## Getting Started (Fresh Clone)
 
 ### 1) Install dependencies
-```
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2) local secrets file
+### 2) Set up local secrets
 
-This repo may reference `server/conf/secret_settings.py`, but that file is intentionally not committed.
+Copy the template to create your local config:
 
-If the server complains it is missing, create it locally:
-
-`server/conf/secret_settings.py`
-
+```bash
+cp server/conf/secret_settings.py.example server/conf/secret_settings.py
 ```
-# Local overrides and secrets live here (not committed).
-```
+
+Edit `secret_settings.py` and adjust values for your environment:
+- `SECRET_KEY` — Django secret key (generate with `python -c "from django.core.secretkey import get_secret_key; print(get_secret_key())"`)
+- `LOCAL_BASE_URL` / `LOCAL_MODEL` — your LLM endpoint and model
+- `STARTING_POSITION_ID` — dbref of the starting room
+
+For image generation, set the `FLUX2_SERVER_URL` environment variable (see above).
 
 ### 3) Initialize and start
 
-```
+```bash
 evennia migrate
 evennia start
 ```
 
-MUD client: localhost:4000
-Web client: [http://localhost:4001](http://localhost:4001)
+**MUD client:** `localhost:4000`
+**Web client:** [http://localhost:4001](http://localhost:4001)
+
+---
+
+## Discord Gateway (Optional)
+
+A companion **Discord gateway** connects the MUD to Discord, allowing players to join via a Discord channel:
+
+- Repository: `muddev/evennia-discord-gateway`
+- See `evennia-discord-gateway/README.md` for setup instructions
 
 ---
 
@@ -103,6 +142,3 @@ It is a sandbox for ideas, not a production service.
 ---
 
 Enjoy exploring.
-
----
-
