@@ -26,7 +26,8 @@ def _get_backend() -> Any | None:
 
         # Build absolute path for the generated media directory
         import os
-        game_dir = os.path.dirname(os.path.abspath(__file__))
+        utils_dir = os.path.dirname(os.path.abspath(__file__))
+        game_dir = os.path.dirname(utils_dir)
         media_dir = os.path.join(game_dir, "server", ".media", "generated")
 
         backend = Flux2RestBackend(
