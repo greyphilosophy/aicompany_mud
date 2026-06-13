@@ -54,7 +54,7 @@ def _generate_image(backend, subject_type: str, subject_key: str, prompt: str) -
             subject_key=subject_key,
             prompt=prompt,
             mode="txt2img",
-            width=1024,
+            width=1536,
             height=1024,
         )
     )
