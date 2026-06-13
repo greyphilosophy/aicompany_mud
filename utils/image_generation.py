@@ -28,7 +28,7 @@ def _get_backend() -> Any | None:
         import os
         utils_dir = os.path.dirname(os.path.abspath(__file__))
         game_dir = os.path.dirname(utils_dir)
-        media_dir = os.path.join(game_dir, "server", ".media", "generated")
+        media_dir = os.path.join(game_dir, "server", ".static", "media", "generated")
 
         backend = Flux2RestBackend(
             server_url=os.getenv("FLUX2_SERVER_URL", "http://169.254.209.73:8190"),
