@@ -31,6 +31,7 @@ from utils.room_object_query import (
 from utils.room_targeting import resolve_edit_target, instruction_mentions_target
 from utils.room_text import normalize_say_message, is_computer_addressed, extract_computer_instruction
 from utils.image_mixin import ImageMixin
+from utils.object_classification import apply_classification
 
 
 class Room(DefaultRoom):
@@ -116,6 +117,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
     def _unlock_desc_rewrite(self):
         """Safety net: force-unlock the desc_rewrite_inflight flag."""
         self.ndb.desc_rewrite_inflight = False
+        # If a rewrite was queued while this one hung, kick it off
+        if self.ndb.desc_rewrite_pending:
+            self.ndb.desc_rewrite_pending = False
+            delay(0.2, self._start_desc_rewrite)
 
     def get_display_name(self, looker, **kwargs):
         name = super().get_display_name(looker, **kwargs)
@@ -143,12 +148,22 @@ class SmartRoom(ImageMixin, DefaultRoom):
 
     def at_object_receive(self, moved_obj, source_location, **kwargs):
         super().at_object_receive(moved_obj, source_location, **kwargs)
-        if self.db.auto_desc and self._is_scene_object(moved_obj):
+        is_notable = self._is_scene_object(moved_obj)
+        logger.log_info(
+            f"[SmartRoom #{self.id}] at_object_receive: {moved_obj.key} (dbref={moved_obj.dbref}), "
+            f"notable={is_notable}, auto_desc={self.db.auto_desc}"
+        )
+        if self.db.auto_desc and is_notable:
             self._schedule_desc_rewrite()
 
     def at_object_leave(self, moved_obj, destination, **kwargs):
         super().at_object_leave(moved_obj, destination, **kwargs)
-        if self.db.auto_desc and self._is_scene_object(moved_obj):
+        is_notable = self._is_scene_object(moved_obj)
+        logger.log_info(
+            f"[SmartRoom #{self.id}] at_object_leave: {moved_obj.key} (dbref={moved_obj.dbref}), "
+            f"notable={is_notable}, auto_desc={self.db.auto_desc}"
+        )
+        if self.db.auto_desc and is_notable:
             self._schedule_desc_rewrite()
 
     def _schedule_desc_rewrite(self):
@@ -165,6 +180,8 @@ class SmartRoom(ImageMixin, DefaultRoom):
 
     def _start_desc_rewrite(self):
         if getattr(self.ndb, "desc_rewrite_inflight", False):
+            # Queue a pending flag so the next rewrite fires after the current one finishes.
+            self.ndb.desc_rewrite_pending = True
             return
         self.ndb.desc_rewrite_inflight = True
 
@@ -179,9 +196,10 @@ class SmartRoom(ImageMixin, DefaultRoom):
         self.db.last_desc_rewrite_ts = now
 
         # NEW: subtle “thinking” cue
-        # Safety net: if the LLM call hangs, unlock the inflight flag after 20s
-        # (generate_room_desc_safe times out at 15s + 1 attempt)
-        safe_unlock = delay(20.0, self._unlock_desc_rewrite)
+        # Safety net: if the LLM call hangs, unlock the inflight flag after 125s
+        # (generate_room_desc_safe times out at 120s + 5s buffer to avoid racing the real callback)
+        # Store the handle so we can cancel it when the rewrite completes normally.
+        self.ndb.safe_unlock_handle = delay(125.0, self._unlock_desc_rewrite)
 
         self.msg_contents("|mThe set shimmers, reconsidering itself…|n")
         computer = Computer(self)
@@ -203,7 +221,6 @@ class SmartRoom(ImageMixin, DefaultRoom):
                     if isinstance(facts, list):
                         self.db.director_facts = facts
 
-                    # NEW: only announce if something actually changed
                     self.msg_contents("|mReality settles into a new arrangement.|n")
                     # Trigger room image generation on description rewrite
                     if self.image_enabled and self._can_trigger_image():
@@ -211,16 +228,33 @@ class SmartRoom(ImageMixin, DefaultRoom):
                         _img_log = logging.getLogger(__name__)
                         _img_log.info(f"[SmartRoom #{self.id}] Triggering room image for: {new_desc[:80]}...")
                         self._trigger_image_generation(new_desc, subject_type="room")
+                else:
+                    # No change — tell the players the room considered itself and kept what it had
+                    self.msg_contents("|mThe shimmering fades.|n")
 
             finally:
+                # Cancel the safety-net delay so it doesn't fire after us.
+                if hasattr(self.ndb, "safe_unlock_handle"):
+                    self.ndb.safe_unlock_handle.cancel()
+                    del self.ndb.safe_unlock_handle
                 self.ndb.desc_rewrite_inflight = False
+                # Check if another rewrite was queued while this one ran
+                if self.ndb.desc_rewrite_pending:
+                    self.ndb.desc_rewrite_pending = False
+                    delay(0.2, self._start_desc_rewrite)
 
         def _on_fail(failure):
-            try:
-                logger.log_err(f"[SmartRoom] Director rewrite failure:\n{failure.getTraceback()}")
-            except Exception:
-                logger.log_err("[SmartRoom] Director rewrite failure (could not render traceback).")
+            # Cancel the safety-net delay
+            if hasattr(self.ndb, "safe_unlock_handle"):
+                self.ndb.safe_unlock_handle.cancel()
+                del self.ndb.safe_unlock_handle
             self.ndb.desc_rewrite_inflight = False
+            logger.log_err(f"[SmartRoom] Director rewrite failure:\n{failure.getTraceback()}")
+            self.msg_contents("|mThe shimmering fades.|n")
+            # Check if another rewrite was queued while this one ran
+            if self.ndb.desc_rewrite_pending:
+                self.ndb.desc_rewrite_pending = False
+                delay(0.2, self._start_desc_rewrite)
 
         d.addCallback(_on_ok)
         d.addErrback(_on_fail)
@@ -478,6 +512,8 @@ class SmartRoom(ImageMixin, DefaultRoom):
                     desc = f"A newly manifested {remainder.strip()}."
 
                 obj = self._manifest_prop(key=key[:60], shortdesc=shortdesc[:140], desc=desc)
+                # Apply object classification so abilities are discoverable
+                apply_classification(obj, propdata.get("object_type"), propdata.get("properties"))
                 self.msg_contents(f"|mThe room hums.|n {obj.db.shortdesc or obj.key} appears at {speaker.key}'s request.")
                 self._schedule_desc_rewrite()
 

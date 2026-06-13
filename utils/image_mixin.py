@@ -11,7 +11,11 @@ utils/image_generation.py so all backend configuration lives in one place.
 from __future__ import annotations
 
 import logging
-from typing import Any
+
+from utils.image_paths import (
+    build_generated_image_url,
+    get_generated_image_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +43,21 @@ class ImageMixin:
 
     def at_object_creation(self):
         super().at_object_creation()
-        # Initialize image state
+        # Initialize image state (only if not already set)
         if not hasattr(self, "db"):
             return
-        self.db.image_url = None
-        self.db.image_generating = False
-        self.db._image_generation_last_ts = 0.0
+        if not hasattr(self.db, "image_url"):
+            self.db.image_url = None
+        if not hasattr(self.db, "image_generating"):
+            self.db.image_generating = False
+        if not hasattr(self.db, "_image_generation_last_ts"):
+            self.db._image_generation_last_ts = 0.0
 
     def _is_image_generating(self) -> bool:
         return getattr(self.db, "image_generating", False)
 
     def _can_trigger_image(self) -> bool:
-        """Check if we're past the cooldown."""
+        """Check if the cooldown has passed."""
         import time
         last = self.db._image_generation_last_ts
         if last is None:
@@ -58,15 +65,9 @@ class ImageMixin:
         return (time.time() - last) >= self.image_generation_cooldown
 
     def _trigger_image_generation(self, prompt: str, subject_type: str = "room") -> None:
-        """
-        Trigger asynchronous image generation via utils/image_generation.py.
-
-        Delegates to the central helper so all backend configuration
-        lives in one place.
-        """
+        """Trigger asynchronous image generation via utils/image_generation.py."""
         if not self.image_enabled:
             return
-
         if not self._can_trigger_image():
             return
 
@@ -77,15 +78,15 @@ class ImageMixin:
 
         def _generate():
             try:
+                from utils.image_generation import generate_object_image, generate_room_image
+
                 if subject_type == "object":
-                    from utils.image_generation import generate_object_image
                     result = generate_object_image(
-                        object_key=self.key,
-                        object_desc=getattr(self.db, "desc", ""),
+                        object_key=getattr(self, "key", "object"),
+                        object_desc=prompt,
                         shortdesc=getattr(self.db, "shortdesc", ""),
                     )
                 else:
-                    from utils.image_generation import generate_room_image
                     result = generate_room_image(prompt)
                 if result is not None:
                     self.db.image_url = result
@@ -102,12 +103,7 @@ class ImageMixin:
         deferToThread(_generate)
 
     def _trigger_object_image(self, obj) -> None:
-        """
-        Trigger an image for a child object (prop, creature, etc.).
-
-        Delegates to utils/image_generation.py so backend configuration
-        is centralized.
-        """
+        """Trigger an image for a child object (prop, creature, etc.)."""
         if not self._can_trigger_image():
             return
 
@@ -139,24 +135,43 @@ class ImageMixin:
 
     def get_image_html(self) -> str:
         """
-        Return HTML image tag (for webclient) or plain URL for telnet.
-        Subclasses can override this for different display formats.
+        Return HTML image tag (for webclient).
         """
         url = getattr(self.db, "image_url", None)
         if url:
-            return f'<img src="{url}" width="600" style="border-radius: 8px;">'
+            # Normalize the image URL for display/attachment delivery.
+            safe_url = build_generated_image_url(url)
+            return f'<img src="{safe_url}" width="600" style="border-radius: 8px;">'
         return ""
 
     def get_description_with_image(self) -> str:
         """
-        Get the object/room description with the image appended.
+        Get the object/room description with the image URL appended.
 
-        Default: appends image URL. Override for custom formatting.
+        Appends a markdown image reference on its own line so the gateway can
+        detect, attach the file, and strip the reference from text output.
+        Format: [Image](/media/generated/filename.png)
         """
         desc = getattr(self.db, "desc", "")
         if getattr(self.db, "image_generating", False):
-            return f"{desc}\n\n|yImage: generating...|n"
+            return f"{desc}\n\n|yImage: generating...|n" if desc else "|yImage: generating...|n"
         url = getattr(self.db, "image_url", None)
         if url:
-            return f"{desc}\n\n|yImage: {url}|n"
+            # Check if the image file still exists — if stale, regenerate
+            if self._is_image_stale(url):
+                self.db.image_url = None
+                self._trigger_image_generation(desc, "room")
+                return f"{desc}\n\n|yImage: generating...|n" if desc else "|yImage: generating...|n"
+            safe_url = self._make_safe_url(url)
+            return f"{desc}\n\n[Image]({safe_url})"
         return desc or ""
+
+    def _is_image_stale(self, url: str) -> bool:
+        """Check if the image file referenced by the URL still exists."""
+        import os
+        file_path = get_generated_image_path(url)
+        return not os.path.isfile(file_path)
+
+    def _make_safe_url(self, url: str) -> str:
+        """Ensure the image URL is safe for display."""
+        return build_generated_image_url(url)

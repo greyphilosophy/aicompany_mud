@@ -97,6 +97,7 @@ class TestImageMixinRobustness:
                 )
 
         obj = WithUrl()
+        obj._is_image_stale = lambda url: False
         result = obj.get_description_with_image()
         assert "cat.png" in result
         assert "brass cat idol" in result
@@ -119,6 +120,33 @@ class TestImageMixinRobustness:
         obj = Generating()
         result = obj.get_description_with_image()
         assert "generating..." in result
+
+    def test_get_description_with_image_regenerates_stale_image(self):
+        """A stale image reference should trigger regeneration and show the loading message."""
+        from utils.image_mixin import ImageMixin
+
+        calls = []
+
+        class Stale(ImageMixin):
+            db = None
+            key = "stale"
+
+            def __init__(self):
+                self.db = FakeDb(
+                    desc="A worn lantern.",
+                    image_url="/media/generated/lantern.png",
+                    image_generating=False,
+                )
+
+            def _trigger_image_generation(self, prompt, subject_type="room"):
+                calls.append((prompt, subject_type))
+
+        obj = Stale()
+        obj._is_image_stale = lambda url: True
+        result = obj.get_description_with_image()
+        assert "generating" in result
+        assert calls == [("A worn lantern.", "room")]
+        assert obj.db.image_url is None
 
     def test_object_image_display_in_get_display_desc(self):
         """Verify the image display pattern used by Object.get_display_desc works correctly."""

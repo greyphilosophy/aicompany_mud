@@ -38,17 +38,24 @@ class Object(ImageMixin, ObjectParent, DefaultObject):
         return super().at_object_delete()
 
     def get_display_desc(self, looker=None, **kwargs):
-        """Return the object description with image URL appended."""
+        """Return the object description with image appended."""
         desc = getattr(self.db, "desc", "") or ""
         if getattr(self.db, "image_generating", False):
-            return f"{desc}\n\n|yImage: generating...|n"
+            return f"{desc}\n\n|yImage: generating...|n" if desc else "|yImage: generating...|n"
         url = getattr(self.db, "image_url", None)
         if url:
-            return f"{desc}\n\n|yImage: {url}|n"
-        
+            # Check if the image file still exists — if stale, regenerate
+            if self._is_image_stale(url):
+                self.db.image_url = None
+                self._trigger_image_generation(getattr(self.db, "desc", ""), "object")
+                return f"{desc}\n\n|yImage: generating...|n" if desc else "|yImage: generating...|n"
+            safe_url = self._make_safe_url(url)
+            return f"{desc}\n\n|yImage: {safe_url}|n"
+
         # No image yet — trigger generation (respects cooldown)
         if self._can_trigger_image():
-            prompt = desc or self.key
-            self._trigger_image_generation(prompt, subject_type="object")
-        
+            self._trigger_image_generation(getattr(self.db, "desc", ""), "object")
+            return f"{desc}\n\n|yImage: generating...|n" if desc else "|yImage: generating...|n"
+
         return desc
+
