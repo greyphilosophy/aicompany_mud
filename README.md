@@ -56,9 +56,11 @@ No external API keys are required to run the game.
 
 If you *do* want to enable a remote LLM fallback, set the following environment variable:
 
+```bash
+export OPENAI_API_KEY="your-key-here"
 ```
-export OPENAI_API_KEY=*** file named `server/conf/secret_settings.py` may exist locally, but it is intentionally not tracked by git.
-If absent, the game will continue to operate using local models only.
+
+A file named `server/conf/secret_settings.py` may exist locally, but it is intentionally not tracked by git.
 
 ---
 
