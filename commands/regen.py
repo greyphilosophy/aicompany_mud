@@ -5,8 +5,6 @@ Regenerate an AI image for a room or object.
 Usage:
   regen          - Regenerate image for current room
   regen name     - Regenerate image for a named object (current room only)
-
-Requires builder privilege.
 """
 import concurrent.futures
 
@@ -17,8 +15,7 @@ class CmdRegen(Command):
     """
     Regenerate an AI image for the current room or a named object.
 
-    Only searches for objects in the current room. Requires builder
-    privilege to avoid resource burn from unprivileged players.
+    Only searches for objects in the current room.
 
     Usage:
       regen          - Generate image for current room
