@@ -6,10 +6,9 @@ Usage:
   regen          - Regenerate image for current room
   regen name     - Regenerate image for a named object (current room only)
 
-Requires builder lock. Does not accept dbref arguments (local search only).
+Requires builder privilege.
 """
 import concurrent.futures
-import threading
 
 from evennia import Command
 
@@ -31,7 +30,7 @@ class CmdRegen(Command):
     """
     key = "regen"
     aliases = ["regenerate"]
-    locks = "cmd:all()"
+    locks = "cmd:perm(6)"  # Restrict to builder+ to prevent FLUX queue flooding
     help_category = "Building"
 
     @staticmethod
@@ -56,7 +55,7 @@ class CmdRegen(Command):
         )
         return result.image_url
 
-    def _on_room_done(self, room, prompt, future):
+    def _on_room_done(self, room, future):
         """Callback: runs on reactor thread after image is generated."""
         try:
             url = future.result()
@@ -99,10 +98,11 @@ class CmdRegen(Command):
 
             self.caller.msg("Generating room image... please hold (up to 2 minutes).")
             # Offload the blocking HTTP call to a thread; callback runs on reactor thread
+            from twisted.internet import reactor
             future = _executor.submit(
                 self._generate_image, prompt, "room", f"regen_room_{room.dbid}"
             )
-            future.add_done_callback(lambda _: self._on_room_done(room, prompt, future))
+            future.add_done_callback(lambda fut: reactor.callFromThread(self._on_room_done, room, fut))
             return
 
         # Argument provided: search in current room only
@@ -117,10 +117,11 @@ class CmdRegen(Command):
             return
 
         self.caller.msg(f"Generating image for {obj.key}... please hold (up to 2 minutes).")
+        from twisted.internet import reactor
         future = _executor.submit(
             self._generate_image, obj.key, "object", f"regen_{obj.dbid}"
         )
-        future.add_done_callback(lambda _: self._on_object_done(obj, future))
+        future.add_done_callback(lambda fut: reactor.callFromThread(self._on_object_done, obj, fut))
 
 
 # Shared thread pool for FLUX.2 HTTP calls (bounded so they don't starve the reactor)
