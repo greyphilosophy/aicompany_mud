@@ -36,7 +36,7 @@ def _get_backend() -> Any | None:
             server_url=os.getenv("FLUX2_SERVER_URL", "http://169.254.209.73:8190"),
             media_url_base=get_media_url_base(),
             output_dir=get_generated_media_dir(),
-            default_steps=12,
+            default_steps=8,
             timeout_s=600.0,
         )
         _backend_cache = backend
