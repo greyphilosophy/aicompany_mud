@@ -29,7 +29,7 @@ class CmdRegen(Command):
     """
     key = "regen"
     aliases = ["regenerate"]
-    locks = "cmd:builder()"
+    locks = "cmd:all()"
     help_category = "Building"
 
     def _get_backend(self):
