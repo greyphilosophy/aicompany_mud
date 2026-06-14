@@ -30,7 +30,7 @@ class CmdRegen(Command):
     """
     key = "regen"
     aliases = ["regenerate"]
-    locks = "cmd:perm(perm:builder)"  # Restrict to builder+ to prevent FLUX queue flooding
+    locks = "cmd:all()"
     help_category = "Building"
 
     @staticmethod
