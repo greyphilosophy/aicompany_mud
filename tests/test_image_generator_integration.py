@@ -71,6 +71,7 @@ class TestGenerateWithMockedBackend:
         mock_backend.generate.return_value = ImageGenerationResult(
             image_path="generated/test.png",
             image_url=build_generated_image_url("test.png"),
+            seed=42,
             model_name="FLUX.2-dev",
             generation_time=1.0,
             metadata={},
@@ -94,6 +95,7 @@ class TestGenerateWithMockedBackend:
         mock_backend.generate.return_value = ImageGenerationResult(
             image_path="generated/crystal.png",
             image_url=build_generated_image_url("crystal.png"),
+            seed=43,
             model_name="FLUX.2-dev",
             generation_time=1.0,
             metadata={},
@@ -145,6 +147,7 @@ class TestGenerateWithMockedBackend:
         mock_backend.generate.return_value = ImageGenerationResult(
             image_path="generated/test.png",
             image_url=build_generated_image_url("test.png"),
+            seed=44,
             model_name="FLUX.2-dev",
             generation_time=1.0,
             metadata={},

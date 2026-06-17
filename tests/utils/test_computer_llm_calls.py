@@ -121,7 +121,7 @@ def test_predict_intent_builds_messages_and_payload(monkeypatch):
     call = rc.calls[0]
     msgs = call["messages"]
     assert msgs[0]["role"] == "system"
-    assert "Allowed intents" in msgs[0]["content"]
+    assert "Intent categories" in msgs[0]["content"]
 
     payload = json.loads(msgs[1]["content"])
     assert payload["player"] == "Player"
