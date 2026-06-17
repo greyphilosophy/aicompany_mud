@@ -117,7 +117,7 @@ def test_generate_prop_edit_json_builds_payload(monkeypatch):
     assert len(rc.calls) == 1
     msgs = rc.calls[0]["messages"]
     assert msgs[0]["role"] == "system"
-    assert "You edit ONE existing physical object" in msgs[0]["content"]
+    assert "You edit properties of an existing MUD object" in msgs[0]["content"]
 
     payload = json.loads(msgs[1]["content"])
     assert payload["player"] == "Player"
