@@ -77,25 +77,20 @@ def _has_any_backend() -> bool:
     return _get_flux2_backend() is not None or _get_openai_backend() is not None
 
 
-def _flux2_generate_ok() -> bool:
-    """Quick check: can the FLUX2 server accept a minimal generation request?
+def _flux2_server_alive() -> bool:
+    """Quick TCP/connect check against the FLUX.2 server.
 
-    Uses a tiny 64x64 image to avoid burning a full GPU pass. Returns
-    True within ~3 seconds if the server is responsive.
+    Returns True if the server responds within ~3 seconds. Much lighter
+    than a mini-generation: just a GET to the root URL.
     """
     backend = _get_flux2_backend()
     if not backend:
         return False
     server_url = backend.server_url
     try:
-        with httpx.Client(timeout=5.0) as client:
-            # POST to /generate with a minimal payload — the same endpoint
-            # that Flux2RestBackend uses, so it's the real test.
-            r = client.post(
-                f"{server_url}/generate",
-                json={"prompt": "test", "width": 64, "height": 64, "steps": 1},
-            )
-            return r.status_code == 200
+        with httpx.Client(timeout=3.0) as client:
+            r = client.get(f"{server_url}", follow_redirects=True)
+            return r.status_code < 500
     except Exception:
         return False
 
@@ -112,13 +107,13 @@ def _generate_image_with_fallback(
 ) -> str | None:
     """Generate an image, trying FLUX.2 first, then OpenAI.
 
-    Quick check: if FLUX.2 /generate doesn't respond, skip to OpenAI
-    immediately instead of waiting for the full generation timeout.
+    If FLUX2 passes a quick connectivity check, attempt generation.
+    If generation itself fails (e.g. GPU hiccup), fall through to
+    OpenAI instead of returning None immediately.
     """
+    # Try FLUX2 if the server is alive
     flux2 = _get_flux2_backend()
-
-    # Only try FLUX2 if the server's /generate endpoint actually responds
-    if flux2 is not None and _flux2_generate_ok():
+    if flux2 is not None and _flux2_server_alive():
         try:
             from evennia_ai_image_generator.backend.base import ImageGenerationRequest
 
@@ -135,13 +130,13 @@ def _generate_image_with_fallback(
             return result.image_url
         except Exception as exc:
             logger.warning(
-                "FLUX.2 backend failed for %s %s: %s",
+                "FLUX.2 backend failed for %s %s: %s (falling back to OpenAI)",
                 subject_type, subject_key, exc,
             )
-            return None
+            # Fall through to OpenAI instead of returning None
 
     logger.info(
-        "FLUX.2 not available for %s %s, falling back to OpenAI",
+        "FLUX.2 not available for %s %s, using OpenAI",
         subject_type, subject_key,
     )
     openai_backend = _get_openai_backend()
@@ -165,7 +160,6 @@ def _generate_image_with_fallback(
                 "OpenAI backend failed for %s %s: %s",
                 subject_type, subject_key, exc,
             )
-            return None
 
     return None
 
