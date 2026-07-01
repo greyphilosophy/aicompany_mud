@@ -2,8 +2,10 @@
 setuptools
 evennia==5.0.1
 
-# HTTP client for LLM integration
+# AI image generation (FLUX.2 or OpenAI Images API fallback)
+openai>=1.0.0
 httpx
+evennia-ai-image-generator
 
 # Test framework
 pytest
