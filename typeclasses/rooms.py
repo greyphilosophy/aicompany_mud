@@ -270,6 +270,16 @@ class SmartRoom(ImageMixin, DefaultRoom):
         if not message:
             return
 
+        # Speech-capable contents (currently NPCs) hear the same event the room does.
+        # Iterate over a copy because a future harness may relocate objects in response.
+        for obj in list(self.contents):
+            if obj is speaker or not hasattr(obj, "at_heard_say"):
+                continue
+            try:
+                obj.at_heard_say(speaker, message, **kwargs)
+            except Exception:
+                logger.log_trace()
+
         from utils.facts import new_fact, add_fact, get_facts, remove_fact
 
         # Remember ALL speech
