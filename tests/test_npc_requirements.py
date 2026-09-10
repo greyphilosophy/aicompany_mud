@@ -10,6 +10,13 @@ class Db:
         self.__dict__.update(values)
 
 
+class Voice:
+    SYSTEM_PROMPT = Speaker.SYSTEM_PROMPT
+
+    def providers(self):
+        return []
+
+
 def context(entries=None):
     memory = SimpleNamespace(
         db=Db(entries=list(entries or [])),
@@ -142,14 +149,9 @@ def test_speaker_builds_llm_messages_from_the_carried_context(monkeypatch):
     assert seen["messages"][-1] == {"role": "user", "content": "Visitor: Who are you?"}
 
 
-def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
+def test_npc_snapshots_all_evennia_state_before_worker_thread(monkeypatch):
     memory = context([{"role": "user", "who": "Visitor", "content": "Hello"}])
     listener = SimpleNamespace(record=lambda npc, speaker, message: memory)
-
-    class Voice:
-        def generate_response_from_messages(self, name, messages):
-            return "Hi"
-
     voice = Voice()
     captured = {}
 
@@ -171,10 +173,12 @@ def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
 
     NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
 
-    assert getattr(captured["func"], "__self__", None) is voice
+    assert captured["func"] is Speaker.generate_response_from_messages
     assert captured["args"] == (
         "Ada",
         [{"role": "user", "content": "Visitor: Hello"}],
+        [],
+        Speaker.SYSTEM_PROMPT,
     )
     assert npc.ndb.reply_inflight is True
 
@@ -190,11 +194,6 @@ def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
         return current["context"]
 
     listener = SimpleNamespace(record=record)
-
-    class Voice:
-        def generate_response_from_messages(self, name, messages):
-            return "Hi"
-
     voice = Voice()
     deferreds = []
 
@@ -229,7 +228,8 @@ def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
 
 def test_reply_is_suppressed_if_original_speaker_harness_is_removed(monkeypatch):
     memory = context()
-    current_voice = {"voice": None}
+    current_voice = {"voice": Voice()}
+    original_voice = current_voice["voice"]
     spoken = []
 
     def record(npc, speaker, message):
@@ -237,14 +237,6 @@ def test_reply_is_suppressed_if_original_speaker_harness_is_removed(monkeypatch)
         return memory
 
     listener = SimpleNamespace(record=record)
-
-    class Voice:
-        def generate_response_from_messages(self, name, messages):
-            return "Hi"
-
-    voice_a = Voice()
-    voice_b = Voice()
-    current_voice["voice"] = voice_a
     deferreds = []
 
     def fake_defer_to_thread(func, *args):
@@ -265,7 +257,8 @@ def test_reply_is_suppressed_if_original_speaker_harness_is_removed(monkeypatch)
     )
 
     NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
-    current_voice["voice"] = voice_b
+    current_voice["voice"] = Voice()
+    assert current_voice["voice"] is not original_voice
     deferreds[0].fire_success("Reply from old speaker")
 
     assert [entry["content"] for entry in Context.export(memory)] == [
@@ -283,11 +276,6 @@ def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
         return memory
 
     listener = SimpleNamespace(record=record)
-
-    class Voice:
-        def generate_response_from_messages(self, name, messages):
-            return "Hi"
-
     voice = Voice()
     deferreds = []
     dispatches = []
@@ -337,6 +325,8 @@ def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
             {"role": "assistant", "content": "Hi"},
             {"role": "user", "content": "Visitor: Second"},
         ],
+        [],
+        Speaker.SYSTEM_PROMPT,
     )
 
 
@@ -350,11 +340,6 @@ def test_pending_follow_up_does_not_cross_into_a_new_context(monkeypatch):
         return current["context"]
 
     listener = SimpleNamespace(record=record)
-
-    class Voice:
-        def generate_response_from_messages(self, name, messages):
-            return "Hi"
-
     voice = Voice()
     deferreds = []
     dispatches = []
