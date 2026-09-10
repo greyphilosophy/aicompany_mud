@@ -16,7 +16,9 @@ from utils.llm_client import LLMProvider, build_default_client_from_env
 class Context(Object):
     """A portable conversation history, normally carried by an NPC."""
 
-    MAX_ENTRIES = 100
+    # Conservative default to reduce prompt/context size.
+    # Can be overridden at runtime with NPC_CONTEXT_MAX_ENTRIES.
+    MAX_ENTRIES = int(os.getenv("NPC_CONTEXT_MAX_ENTRIES", "50"))
     _ENTRY_ID = "_entry_id"
 
     def at_object_creation(self):
