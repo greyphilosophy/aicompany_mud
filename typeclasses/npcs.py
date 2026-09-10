@@ -123,7 +123,7 @@ class Speaker(Object):
         return providers
 
     def generate_response_from_messages(self, npc_name, history_messages):
-        """Generate from plain Python data so this is safe to run in a worker thread."""
+        """Generate from snapshotted history suitable for a worker thread."""
         history_messages = [dict(message) for message in history_messages or []]
         logger.log_info(
             f"[NPC {npc_name}] queued LLM call: {len(history_messages)} context entr(y/ies)"
@@ -183,6 +183,49 @@ class NPC(Object):
         own.incorporate(other_context.export(start, stop))
         return True
 
+    def _dispatch_reply(self, context, voice):
+        """Snapshot current context and dispatch one LLM-backed reply."""
+        npc_name = str(self.key)
+        history_messages = context.as_messages()
+        self.ndb.reply_inflight = True
+        logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
+        deferred = deferToThread(
+            voice.generate_response_from_messages, npc_name, history_messages
+        )
+
+        def _say(response):
+            logger.log_info(f"[NPC {self.key}] callback fired, appending to context")
+            current_context = self.get_context()
+            if current_context:
+                current_context.append(self.key, response, role="assistant")
+            logger.log_info(f"[NPC {self.key}] speaking: {response[:120]}")
+            self.say(response)
+            return response
+
+        def _failed(failure):
+            logger.log_err(f"[NPC {self.key}] response failure:\n{failure.getTraceback()}")
+            return None
+
+        def _finished(result):
+            self.ndb.reply_inflight = False
+            logger.log_info(f"[NPC {self.key}] reply cycle complete")
+
+            if getattr(self.ndb, "reply_pending", False):
+                self.ndb.reply_pending = False
+                pending_context = self.get_context()
+                pending_voice = self.get_speaker()
+                if pending_context and pending_voice:
+                    logger.log_info(
+                        f"[NPC {self.key}] dispatching one queued follow-up reply"
+                    )
+                    NPC._dispatch_reply(self, pending_context, pending_voice)
+            return result
+
+        deferred.addCallback(_say)
+        deferred.addErrback(_failed)
+        deferred.addBoth(_finished)
+        return deferred
+
     def at_heard_say(self, speaker, message, **kwargs):
         """Called by a speech-aware room for every other local speaker."""
         listener = self.get_listener()
@@ -213,47 +256,22 @@ class NPC(Object):
         if isinstance(speaker, NPC) and not bool(self.db.respond_to_npcs):
             return
 
-        # If a reply is already in flight, just record and wait.
+        # Coalesce speech heard while busy into one follow-up reply using latest context.
         if getattr(self.ndb, "reply_inflight", False):
+            self.ndb.reply_pending = True
             logger.log_info(
-                f"[NPC {self.key}] reply already in flight, speech recorded to context"
+                f"[NPC {self.key}] reply already in flight; speech recorded and follow-up queued"
             )
             return
 
-        # Snapshot all live Evennia state before crossing into the worker thread.
-        npc_name = str(self.key)
-        history_messages = context.as_messages()
-        self.ndb.reply_inflight = True
-        logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
-        deferred = deferToThread(
-            voice.generate_response_from_messages, npc_name, history_messages
-        )
-
-        def _say(response):
-            logger.log_info(f"[NPC {self.key}] callback fired, appending to context")
-            context.append(self.key, response, role="assistant")
-            logger.log_info(f"[NPC {self.key}] speaking: {response[:120]}")
-            self.say(response)
-            return response
-
-        def _failed(failure):
-            logger.log_err(f"[NPC {self.key}] response failure:\n{failure.getTraceback()}")
-            return None
-
-        def _finished(result):
-            self.ndb.reply_inflight = False
-            logger.log_info(f"[NPC {self.key}] reply cycle complete")
-            return result
-
-        deferred.addCallback(_say)
-        deferred.addErrback(_failed)
-        deferred.addBoth(_finished)
+        self.ndb.reply_pending = False
+        NPC._dispatch_reply(self, context, voice)
 
     def say(self, message):
         """Speak without requiring this Object to masquerade as a Character."""
         if not self.location or not message:
             return
-        logger.log_info(f"[NPC {self.key}] broadcasting to room: {message[:120]}")
+        logger.log_info(f"[NPC {self.key}] broadcasting to room: {str(message)[:120]}")
         self.location.msg_contents(f'{self.key} says, "{message}"', from_obj=self)
         if hasattr(self.location, "handle_speech"):
             self.location.handle_speech(self, message)
