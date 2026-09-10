@@ -178,20 +178,23 @@ class Speaker(Object):
             )
         return providers
 
-    def generate_response_from_messages(self, npc_name, history_messages):
-        """Generate from snapshotted history suitable for a worker thread."""
+    @staticmethod
+    def generate_response_from_messages(
+        npc_name, history_messages, providers, system_prompt
+    ):
+        """Generate using only plain snapshotted data in the worker thread."""
         history_messages = [dict(message) for message in history_messages or []]
+        providers = list(providers or [])
         logger.log_info(
             f"[NPC {npc_name}] queued LLM call: {len(history_messages)} context entr(y/ies)"
         )
-        providers = self.providers()
         for provider in providers:
             logger.log_info(
                 f"[NPC {npc_name}] provider: {provider.label} @ {provider.base_url} / "
                 f"model={provider.model} / key={'set' if provider.api_key else 'unset'}"
             )
         messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT.format(name=npc_name)}
+            {"role": "system", "content": str(system_prompt).format(name=npc_name)}
         ]
         messages.extend(history_messages)
         logger.log_info(f"[NPC {npc_name}] sending {len(messages)} messages to LLM")
@@ -205,7 +208,10 @@ class Speaker(Object):
     def generate_response(self, npc, context):
         """Compatibility wrapper for callers that already have live Evennia objects."""
         return Speaker.generate_response_from_messages(
-            self, npc.key, context.as_messages()
+            npc.key,
+            context.as_messages(),
+            self.providers(),
+            self.SYSTEM_PROMPT,
         )
 
 
@@ -255,13 +261,19 @@ class NPC(Object):
         return NPC._same_object(self.get_speaker(), speaker)
 
     def _dispatch_reply(self, context, voice):
-        """Snapshot current context and dispatch one LLM-backed reply."""
+        """Snapshot current equipment state and dispatch one LLM-backed reply."""
         npc_name = str(self.key)
         history_messages, history_ids = Context.snapshot(context)
+        providers = voice.providers()
+        system_prompt = str(voice.SYSTEM_PROMPT)
         self.ndb.reply_inflight = True
         logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
         deferred = deferToThread(
-            voice.generate_response_from_messages, npc_name, history_messages
+            Speaker.generate_response_from_messages,
+            npc_name,
+            history_messages,
+            providers,
+            system_prompt,
         )
 
         def _say(response):
