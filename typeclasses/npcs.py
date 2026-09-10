@@ -122,20 +122,35 @@ class Speaker(Object):
             )
         return providers
 
-    def generate_response(self, npc, context):
-        logger.log_info(f"[NPC {npc.key}] queued LLM call: {len(context.db.entries)} context entr(y/ies)")
+    def generate_response_from_messages(self, npc_name, history_messages):
+        """Generate from plain Python data so this is safe to run in a worker thread."""
+        history_messages = [dict(message) for message in history_messages or []]
+        logger.log_info(
+            f"[NPC {npc_name}] queued LLM call: {len(history_messages)} context entr(y/ies)"
+        )
         providers = self.providers()
-        for p in providers:
-            logger.log_info(f"[NPC {npc.key}] provider: {p.label} @ {p.base_url} / model={p.model} / key={'set' if p.api_key else 'unset'}")
-        messages = [{"role": "system", "content": self.SYSTEM_PROMPT.format(name=npc.key)}]
-        messages.extend(context.as_messages())
-        logger.log_info(f"[NPC {npc.key}] sending {len(messages)} messages to LLM")
+        for provider in providers:
+            logger.log_info(
+                f"[NPC {npc_name}] provider: {provider.label} @ {provider.base_url} / "
+                f"model={provider.model} / key={'set' if provider.api_key else 'unset'}"
+            )
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT.format(name=npc_name)}
+        ]
+        messages.extend(history_messages)
+        logger.log_info(f"[NPC {npc_name}] sending {len(messages)} messages to LLM")
         data = build_default_client_from_env().chat_json(providers, messages)
         response = str(data.get("response") or "").strip()
         if not response:
             raise ValueError("NPC response did not contain a non-empty 'response' field")
-        logger.log_info(f"[NPC {npc.key}] response received: {response[:120]}")
+        logger.log_info(f"[NPC {npc_name}] response received: {response[:120]}")
         return response
+
+    def generate_response(self, npc, context):
+        """Compatibility wrapper for callers that already have live Evennia objects."""
+        return Speaker.generate_response_from_messages(
+            self, npc.key, context.as_messages()
+        )
 
 
 class NPC(Object):
@@ -165,7 +180,7 @@ class NPC(Object):
         own = self.get_context()
         if not own:
             return False
-        own.incorpore(other_context.export(start, stop))
+        own.incorporate(other_context.export(start, stop))
         return True
 
     def at_heard_say(self, speaker, message, **kwargs):
@@ -174,13 +189,23 @@ class NPC(Object):
         if not listener or speaker is self:
             return
 
-        # Record speech to context regardless of whether a reply is in flight
+        # Record speech to context regardless of whether a reply is in flight.
         context = listener.record(self, speaker, message)
-        logger.log_info(f"[NPC {self.key}] heard speech from {getattr(speaker, 'key', 'unknown')}: {message[:100]}")
-        logger.log_info(f"[NPC {self.key}] context now has {len(context.db.entries)} entr(y/ies)")
+        logger.log_info(
+            f"[NPC {self.key}] heard speech from "
+            f"{getattr(speaker, 'key', 'unknown')}: {str(message)[:100]}"
+        )
+        if not context:
+            logger.log_warn(
+                f"[NPC {self.key}] listener heard speech but no Context is carried"
+            )
+            return
+        logger.log_info(
+            f"[NPC {self.key}] context now has {len(context.db.entries or [])} entr(y/ies)"
+        )
 
         voice = self.get_speaker()
-        if not context or not voice:
+        if not voice:
             return
 
         # NPC speech is remembered but does not trigger another reply by default;
@@ -188,14 +213,21 @@ class NPC(Object):
         if isinstance(speaker, NPC) and not bool(self.db.respond_to_npcs):
             return
 
-        # If a reply is already in flight, just record and wait
+        # If a reply is already in flight, just record and wait.
         if getattr(self.ndb, "reply_inflight", False):
-            logger.log_info(f"[NPC {self.key}] reply already in flight, speech recorded to context")
+            logger.log_info(
+                f"[NPC {self.key}] reply already in flight, speech recorded to context"
+            )
             return
 
+        # Snapshot all live Evennia state before crossing into the worker thread.
+        npc_name = str(self.key)
+        history_messages = context.as_messages()
         self.ndb.reply_inflight = True
         logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
-        deferred = deferToThread(voice.generate_response, self, context)
+        deferred = deferToThread(
+            voice.generate_response_from_messages, npc_name, history_messages
+        )
 
         def _say(response):
             logger.log_info(f"[NPC {self.key}] callback fired, appending to context")
