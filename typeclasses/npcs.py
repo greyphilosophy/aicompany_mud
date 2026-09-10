@@ -141,7 +141,6 @@ class Speaker(Object):
 
     def providers(self):
         # Prefer explicit env vars, otherwise fall back to Django settings.
-        # This prevents offline tests (or evennia shell) from defaulting to 127.0.0.1.
         try:
             from django.conf import settings as dj_settings
         except Exception:
@@ -159,20 +158,26 @@ class Speaker(Object):
         if not model:
             model = "gpt-oss-120b"
 
-        providers = [
-            LLMProvider(
-                label="LOCAL",
-                base_url=base_url,
-                model=model,
-            )
-        ]
+        providers = [LLMProvider(label="LOCAL", base_url=base_url, model=model)]
+
         api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key and dj_settings is not None:
+            api_key = getattr(dj_settings, "OPENAI_API_KEY", None)
         if api_key:
+            openai_base_url = os.getenv("OPENAI_BASE_URL")
+            openai_model = os.getenv("OPENAI_MODEL")
+            if dj_settings is not None:
+                openai_base_url = openai_base_url or getattr(
+                    dj_settings, "OPENAI_BASE_URL", None
+                )
+                openai_model = openai_model or getattr(
+                    dj_settings, "OPENAI_MODEL", None
+                )
             providers.append(
                 LLMProvider(
                     label="OPENAI",
-                    base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+                    base_url=openai_base_url or "https://api.openai.com/v1",
+                    model=openai_model or "gpt-5-mini",
                     api_key=api_key,
                 )
             )
@@ -266,15 +271,21 @@ class NPC(Object):
         history_messages, history_ids = Context.snapshot(context)
         providers = voice.providers()
         system_prompt = str(voice.SYSTEM_PROMPT)
-        self.ndb.reply_inflight = True
         logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
-        deferred = deferToThread(
-            Speaker.generate_response_from_messages,
-            npc_name,
-            history_messages,
-            providers,
-            system_prompt,
-        )
+        try:
+            deferred = deferToThread(
+                Speaker.generate_response_from_messages,
+                npc_name,
+                history_messages,
+                providers,
+                system_prompt,
+            )
+        except Exception:
+            logger.log_trace()
+            self.ndb.reply_inflight = False
+            return None
+
+        self.ndb.reply_inflight = True
 
         def _say(response):
             logger.log_info(f"[NPC {self.key}] callback fired, recording reply")
