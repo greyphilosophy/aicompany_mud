@@ -84,11 +84,30 @@ class Speaker(Object):
         self.db.desc = "A speaker harness that gives an NPC an artificial voice."
 
     def providers(self):
+        # Prefer explicit env vars, otherwise fall back to Django settings.
+        # This prevents offline tests (or evennia shell) from defaulting to 127.0.0.1.
+        try:
+            from django.conf import settings as dj_settings
+        except Exception:
+            dj_settings = None
+
+        base_url = os.getenv("LOCAL_LLM_BASE_URL")
+        if not base_url and dj_settings is not None:
+            base_url = getattr(dj_settings, "LOCAL_BASE_URL", None)
+        if not base_url:
+            base_url = "http://127.0.0.1:1234/v1"
+
+        model = os.getenv("LOCAL_LLM_MODEL")
+        if not model and dj_settings is not None:
+            model = getattr(dj_settings, "LOCAL_MODEL", None)
+        if not model:
+            model = "gpt-oss-120b"
+
         providers = [
             LLMProvider(
                 label="LOCAL",
-                base_url=os.getenv("LOCAL_LLM_BASE_URL", "http://127.0.0.1:1234/v1"),
-                model=os.getenv("LOCAL_LLM_MODEL", "gpt-oss-120b"),
+                base_url=base_url,
+                model=model,
             )
         ]
         api_key = os.getenv("OPENAI_API_KEY")
@@ -104,12 +123,18 @@ class Speaker(Object):
         return providers
 
     def generate_response(self, npc, context):
+        logger.log_info(f"[NPC {npc.key}] queued LLM call: {len(context.db.entries)} context entr(y/ies)")
+        providers = self.providers()
+        for p in providers:
+            logger.log_info(f"[NPC {npc.key}] provider: {p.label} @ {p.base_url} / model={p.model} / key={'set' if p.api_key else 'unset'}")
         messages = [{"role": "system", "content": self.SYSTEM_PROMPT.format(name=npc.key)}]
         messages.extend(context.as_messages())
-        data = build_default_client_from_env().chat_json(self.providers(), messages)
+        logger.log_info(f"[NPC {npc.key}] sending {len(messages)} messages to LLM")
+        data = build_default_client_from_env().chat_json(providers, messages)
         response = str(data.get("response") or "").strip()
         if not response:
             raise ValueError("NPC response did not contain a non-empty 'response' field")
+        logger.log_info(f"[NPC {npc.key}] response received: {response[:120]}")
         return response
 
 
@@ -140,28 +165,42 @@ class NPC(Object):
         own = self.get_context()
         if not own:
             return False
-        own.incorporate(other_context.export(start, stop))
+        own.incorpore(other_context.export(start, stop))
         return True
 
     def at_heard_say(self, speaker, message, **kwargs):
         """Called by a speech-aware room for every other local speaker."""
         listener = self.get_listener()
-        if not listener or speaker is self or getattr(self.ndb, "reply_inflight", False):
+        if not listener or speaker is self:
             return
+
+        # Record speech to context regardless of whether a reply is in flight
         context = listener.record(self, speaker, message)
+        logger.log_info(f"[NPC {self.key}] heard speech from {getattr(speaker, 'key', 'unknown')}: {message[:100]}")
+        logger.log_info(f"[NPC {self.key}] context now has {len(context.db.entries)} entr(y/ies)")
+
         voice = self.get_speaker()
         if not context or not voice:
             return
+
         # NPC speech is remembered but does not trigger another reply by default;
         # otherwise two equipped NPCs can create an unbounded feedback loop.
         if isinstance(speaker, NPC) and not bool(self.db.respond_to_npcs):
             return
 
+        # If a reply is already in flight, just record and wait
+        if getattr(self.ndb, "reply_inflight", False):
+            logger.log_info(f"[NPC {self.key}] reply already in flight, speech recorded to context")
+            return
+
         self.ndb.reply_inflight = True
+        logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
         deferred = deferToThread(voice.generate_response, self, context)
 
         def _say(response):
+            logger.log_info(f"[NPC {self.key}] callback fired, appending to context")
             context.append(self.key, response, role="assistant")
+            logger.log_info(f"[NPC {self.key}] speaking: {response[:120]}")
             self.say(response)
             return response
 
@@ -171,6 +210,7 @@ class NPC(Object):
 
         def _finished(result):
             self.ndb.reply_inflight = False
+            logger.log_info(f"[NPC {self.key}] reply cycle complete")
             return result
 
         deferred.addCallback(_say)
@@ -181,6 +221,7 @@ class NPC(Object):
         """Speak without requiring this Object to masquerade as a Character."""
         if not self.location or not message:
             return
+        logger.log_info(f"[NPC {self.key}] broadcasting to room: {message[:120]}")
         self.location.msg_contents(f'{self.key} says, "{message}"', from_obj=self)
         if hasattr(self.location, "handle_speech"):
             self.location.handle_speech(self, message)
