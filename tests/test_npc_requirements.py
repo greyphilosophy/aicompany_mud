@@ -11,7 +11,17 @@ class Db:
 
 
 def context(entries=None):
-    return SimpleNamespace(db=Db(entries=list(entries or [])))
+    memory = SimpleNamespace(
+        db=Db(entries=list(entries or [])),
+        MAX_ENTRIES=Context.MAX_ENTRIES,
+    )
+    memory.append = lambda who, message, role="user": Context.append(
+        memory, who, message, role
+    )
+    memory.incorporate = lambda incoming: Context.incorporate(memory, incoming)
+    memory.export = lambda start=None, stop=None: Context.export(memory, start, stop)
+    memory.as_messages = lambda: Context.as_messages(memory)
+    return memory
 
 
 def npc_with(*contents):
@@ -40,8 +50,6 @@ def test_an_npc_can_incorporate_all_or_part_of_another_context():
     destination = context()
     npc = npc_with(destination)
     npc.get_context = lambda: destination
-    source.export = lambda start=None, stop=None: Context.export(source, start, stop)
-    destination.incorporate = lambda entries: Context.incorporate(destination, entries)
     assert NPC.incorporate_context(npc, source, 1, 3) is True
     assert [entry["content"] for entry in destination.db.entries] == ["two", "three"]
 
@@ -86,7 +94,6 @@ def test_speaker_builds_llm_messages_from_the_carried_context(monkeypatch):
 
     monkeypatch.setattr("typeclasses.npcs.build_default_client_from_env", lambda: Client())
     speaker.providers = lambda: []
-    memory.as_messages = lambda: Context.as_messages(memory)
     answer = Speaker.generate_response(speaker, SimpleNamespace(key="Ada"), memory)
     assert answer == "I am Ada."
     assert seen["messages"][-1] == {"role": "user", "content": "Visitor: Who are you?"}
@@ -94,9 +101,13 @@ def test_speaker_builds_llm_messages_from_the_carried_context(monkeypatch):
 
 def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
     memory = context([{"role": "user", "who": "Visitor", "content": "Hello"}])
-    memory.as_messages = lambda: Context.as_messages(memory)
     listener = SimpleNamespace(record=lambda npc, speaker, message: memory)
-    voice = SimpleNamespace(generate_response_from_messages=lambda name, messages: "Hi")
+
+    class Voice:
+        def generate_response_from_messages(self, name, messages):
+            return "Hi"
+
+    voice = Voice()
     captured = {}
 
     class Deferred:
@@ -126,12 +137,81 @@ def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
 
     NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
 
-    assert captured["func"] is voice.generate_response_from_messages
+    assert getattr(captured["func"], "__self__", None) is voice
     assert captured["args"] == (
         "Ada",
         [{"role": "user", "content": "Visitor: Hello"}],
     )
     assert npc.ndb.reply_inflight is True
+
+
+def test_speech_heard_while_replying_queues_one_follow_up(monkeypatch):
+    memory = context()
+
+    def record(npc, speaker, message):
+        memory.append(speaker.key, message, role="user")
+        return memory
+
+    listener = SimpleNamespace(record=record)
+
+    class Voice:
+        def generate_response_from_messages(self, name, messages):
+            return "Hi"
+
+    voice = Voice()
+    deferreds = []
+    dispatches = []
+
+    class Deferred:
+        def addCallback(self, callback):
+            self.callback = callback
+            return self
+
+        def addErrback(self, callback):
+            self.errback = callback
+            return self
+
+        def addBoth(self, callback):
+            self.both = callback
+            return self
+
+    def fake_defer_to_thread(func, *args):
+        dispatches.append((func, args))
+        deferred = Deferred()
+        deferreds.append(deferred)
+        return deferred
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_context=lambda: memory,
+        get_listener=lambda: listener,
+        get_speaker=lambda: voice,
+    )
+
+    visitor = SimpleNamespace(key="Visitor")
+    NPC.at_heard_say(npc, visitor, "First")
+    NPC.at_heard_say(npc, visitor, "Second")
+
+    assert len(dispatches) == 1
+    assert npc.ndb.reply_pending is True
+    assert [entry["content"] for entry in memory.db.entries] == ["First", "Second"]
+
+    deferreds[0].both("done")
+
+    assert len(dispatches) == 2
+    assert npc.ndb.reply_pending is False
+    assert npc.ndb.reply_inflight is True
+    assert dispatches[1][1] == (
+        "Ada",
+        [
+            {"role": "user", "content": "Visitor: First"},
+            {"role": "user", "content": "Visitor: Second"},
+        ],
+    )
 
 
 def test_npc_is_an_object_not_an_autonomous_character():
