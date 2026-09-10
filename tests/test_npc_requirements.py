@@ -227,6 +227,54 @@ def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
     assert spoken == []
 
 
+def test_reply_is_suppressed_if_original_speaker_harness_is_removed(monkeypatch):
+    memory = context()
+    current_voice = {"voice": None}
+    spoken = []
+
+    def record(npc, speaker, message):
+        memory.append(speaker.key, message)
+        return memory
+
+    listener = SimpleNamespace(record=record)
+
+    class Voice:
+        def generate_response_from_messages(self, name, messages):
+            return "Hi"
+
+    voice_a = Voice()
+    voice_b = Voice()
+    current_voice["voice"] = voice_a
+    deferreds = []
+
+    def fake_defer_to_thread(func, *args):
+        deferred = Deferred()
+        deferreds.append(deferred)
+        return deferred
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_context=lambda: memory,
+        get_listener=lambda: listener,
+        get_speaker=lambda: current_voice["voice"],
+        say=lambda message: spoken.append(message),
+    )
+
+    NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
+    current_voice["voice"] = voice_b
+    deferreds[0].fire_success("Reply from old speaker")
+
+    assert [entry["content"] for entry in Context.export(memory)] == [
+        "Hello",
+        "Reply from old speaker",
+    ]
+    assert spoken == []
+
+
 def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
     memory = context()
 
