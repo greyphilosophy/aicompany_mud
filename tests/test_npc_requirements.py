@@ -37,6 +37,11 @@ def npc_with(*contents):
     return SimpleNamespace(contents=list(contents))
 
 
+class Failure:
+    def getTraceback(self):
+        return "simulated failure"
+
+
 class Deferred:
     """Tiny synchronous Deferred stand-in for callback-order tests."""
 
@@ -55,6 +60,14 @@ class Deferred:
     def fire_success(self, result):
         if hasattr(self, "callback"):
             result = self.callback(result)
+        if hasattr(self, "both"):
+            result = self.both(result)
+        return result
+
+    def fire_failure(self):
+        result = Failure()
+        if hasattr(self, "errback"):
+            result = self.errback(result)
         if hasattr(self, "both"):
             result = self.both(result)
         return result
@@ -181,6 +194,32 @@ def test_npc_snapshots_all_evennia_state_before_worker_thread(monkeypatch):
         Speaker.SYSTEM_PROMPT,
     )
     assert npc.ndb.reply_inflight is True
+
+
+def test_synchronous_dispatch_failure_does_not_wedge_npc(monkeypatch):
+    memory = context()
+
+    def record(npc, speaker, message):
+        memory.append(speaker.key, message)
+        return memory
+
+    voice = Voice()
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_context=lambda: memory,
+        get_listener=lambda: SimpleNamespace(record=record),
+        get_speaker=lambda: voice,
+    )
+
+    def fail_dispatch(*args, **kwargs):
+        raise RuntimeError("thread pool unavailable")
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fail_dispatch)
+    NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
+
+    assert npc.ndb.reply_inflight is False
 
 
 def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
@@ -328,6 +367,50 @@ def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
         [],
         Speaker.SYSTEM_PROMPT,
     )
+
+
+def test_failed_reply_still_dispatches_queued_follow_up(monkeypatch):
+    memory = context()
+
+    def record(npc, speaker, message):
+        memory.append(speaker.key, message)
+        return memory
+
+    listener = SimpleNamespace(record=record)
+    voice = Voice()
+    deferreds = []
+    dispatches = []
+
+    def fake_defer_to_thread(func, *args):
+        dispatches.append((func, args))
+        deferred = Deferred()
+        deferreds.append(deferred)
+        return deferred
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_context=lambda: memory,
+        get_listener=lambda: listener,
+        get_speaker=lambda: voice,
+        say=lambda message: None,
+    )
+    visitor = SimpleNamespace(key="Visitor")
+
+    NPC.at_heard_say(npc, visitor, "First")
+    NPC.at_heard_say(npc, visitor, "Second")
+    deferreds[0].fire_failure()
+
+    assert len(dispatches) == 2
+    assert npc.ndb.reply_pending is False
+    assert npc.ndb.reply_inflight is True
+    assert dispatches[1][1][1] == [
+        {"role": "user", "content": "Visitor: First"},
+        {"role": "user", "content": "Visitor: Second"},
+    ]
 
 
 def test_pending_follow_up_does_not_cross_into_a_new_context(monkeypatch):
