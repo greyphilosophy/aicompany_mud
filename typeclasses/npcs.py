@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 
 from twisted.internet.threads import deferToThread
 
@@ -16,15 +17,54 @@ class Context(Object):
     """A portable conversation history, normally carried by an NPC."""
 
     MAX_ENTRIES = 100
+    _ENTRY_ID = "_entry_id"
 
     def at_object_creation(self):
         super().at_object_creation()
         self.db.entries = []
         self.db.desc = "A compact record of an NPC's remembered conversation."
 
+    def _entries_with_ids(self):
+        """Return copied entries, assigning internal IDs to legacy entries as needed."""
+        entries = [dict(entry) for entry in list(self.db.entries or [])]
+        changed = False
+        for entry in entries:
+            if not entry.get(self._ENTRY_ID):
+                entry[self._ENTRY_ID] = uuid4().hex
+                changed = True
+        if changed:
+            self.db.entries = entries
+        return entries
+
     def append(self, who, message, role="user"):
-        entries = list(self.db.entries or [])
-        entries.append({"role": str(role), "who": str(who), "content": str(message)})
+        entries = Context._entries_with_ids(self)
+        entries.append(
+            {
+                "role": str(role),
+                "who": str(who),
+                "content": str(message),
+                self._ENTRY_ID: uuid4().hex,
+            }
+        )
+        self.db.entries = entries[-self.MAX_ENTRIES :]
+
+    def insert_after_snapshot(self, snapshot_ids, who, message, role="assistant"):
+        """Insert a reply immediately after the history snapshot that produced it."""
+        entries = Context._entries_with_ids(self)
+        snapshot_ids = set(snapshot_ids or [])
+        insert_at = 0
+        for index, entry in enumerate(entries):
+            if entry.get(self._ENTRY_ID) in snapshot_ids:
+                insert_at = index + 1
+        entries.insert(
+            insert_at,
+            {
+                "role": str(role),
+                "who": str(who),
+                "content": str(message),
+                self._ENTRY_ID: uuid4().hex,
+            },
+        )
         self.db.entries = entries[-self.MAX_ENTRIES :]
 
     def incorporate(self, entries):
@@ -40,11 +80,16 @@ class Context(Object):
 
     def export(self, start=None, stop=None):
         """Return a copy of all entries, or of the requested slice."""
-        return [dict(entry) for entry in list(self.db.entries or [])[start:stop]]
+        entries = Context._entries_with_ids(self)[start:stop]
+        return [
+            {key: value for key, value in entry.items() if key != self._ENTRY_ID}
+            for entry in entries
+        ]
 
-    def as_messages(self):
+    @staticmethod
+    def _messages_from_entries(entries):
         messages = []
-        for entry in self.db.entries or []:
+        for entry in entries or []:
             role = entry.get("role", "user")
             if role not in {"system", "user", "assistant"}:
                 role = "user"
@@ -53,6 +98,17 @@ class Context(Object):
                 content = f"{entry['who']}: {content}"
             messages.append({"role": role, "content": str(content)})
         return messages
+
+    def as_messages(self):
+        return Context._messages_from_entries(Context._entries_with_ids(self))
+
+    def snapshot(self):
+        """Return LLM messages plus stable IDs for the exact history being answered."""
+        entries = Context._entries_with_ids(self)
+        return (
+            Context._messages_from_entries(entries),
+            [entry[self._ENTRY_ID] for entry in entries],
+        )
 
 
 class Listener(Object):
@@ -183,10 +239,19 @@ class NPC(Object):
         own.incorporate(other_context.export(start, stop))
         return True
 
+    def _is_current_context(self, context):
+        """Compare contexts by object identity, falling back to Evennia DB identity."""
+        current = self.get_context()
+        if current is context:
+            return True
+        current_id = getattr(current, "id", None)
+        context_id = getattr(context, "id", None)
+        return current_id is not None and current_id == context_id
+
     def _dispatch_reply(self, context, voice):
         """Snapshot current context and dispatch one LLM-backed reply."""
         npc_name = str(self.key)
-        history_messages = context.as_messages()
+        history_messages, history_ids = Context.snapshot(context)
         self.ndb.reply_inflight = True
         logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
         deferred = deferToThread(
@@ -194,11 +259,26 @@ class NPC(Object):
         )
 
         def _say(response):
-            logger.log_info(f"[NPC {self.key}] callback fired, appending to context")
-            current_context = self.get_context()
-            if current_context:
-                current_context.append(self.key, response, role="assistant")
-            logger.log_info(f"[NPC {self.key}] speaking: {response[:120]}")
+            logger.log_info(f"[NPC {self.key}] callback fired, recording reply")
+            try:
+                Context.insert_after_snapshot(
+                    context, history_ids, self.key, response, role="assistant"
+                )
+            except Exception:
+                logger.log_trace()
+                return response
+
+            # A reply belongs to the Context that produced it. If that Context was
+            # swapped out while the LLM was working, preserve the reply there but
+            # don't make the NPC speak stale memory from a no-longer-carried Context.
+            if not NPC._is_current_context(self, context):
+                logger.log_warn(
+                    f"[NPC {self.key}] reply recorded to its original Context, "
+                    "but that Context is no longer carried; suppressing stale speech"
+                )
+                return response
+
+            logger.log_info(f"[NPC {self.key}] speaking: {str(response)[:120]}")
             self.say(response)
             return response
 
@@ -211,14 +291,24 @@ class NPC(Object):
             logger.log_info(f"[NPC {self.key}] reply cycle complete")
 
             if getattr(self.ndb, "reply_pending", False):
+                pending_context = getattr(self.ndb, "reply_pending_context", None)
                 self.ndb.reply_pending = False
-                pending_context = self.get_context()
+                self.ndb.reply_pending_context = None
                 pending_voice = self.get_speaker()
-                if pending_context and pending_voice:
+                if (
+                    pending_context
+                    and pending_voice
+                    and NPC._is_current_context(self, pending_context)
+                ):
                     logger.log_info(
                         f"[NPC {self.key}] dispatching one queued follow-up reply"
                     )
                     NPC._dispatch_reply(self, pending_context, pending_voice)
+                else:
+                    logger.log_info(
+                        f"[NPC {self.key}] dropping queued follow-up because its "
+                        "Context or Speaker is no longer carried"
+                    )
             return result
 
         deferred.addCallback(_say)
@@ -256,15 +346,19 @@ class NPC(Object):
         if isinstance(speaker, NPC) and not bool(self.db.respond_to_npcs):
             return
 
-        # Coalesce speech heard while busy into one follow-up reply using latest context.
+        # Coalesce speech heard while busy into one follow-up reply. Remember which
+        # Context heard the newest pending speech so a later Context swap cannot
+        # accidentally generate against unrelated memory.
         if getattr(self.ndb, "reply_inflight", False):
             self.ndb.reply_pending = True
+            self.ndb.reply_pending_context = context
             logger.log_info(
                 f"[NPC {self.key}] reply already in flight; speech recorded and follow-up queued"
             )
             return
 
         self.ndb.reply_pending = False
+        self.ndb.reply_pending_context = None
         NPC._dispatch_reply(self, context, voice)
 
     def say(self, message):
