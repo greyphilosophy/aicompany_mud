@@ -56,6 +56,18 @@ def test_listener_records_only_when_carried_by_the_npc():
     assert memory.db.entries[-1]["content"] == "Good morning"
 
 
+def test_listener_without_context_degrades_cleanly():
+    listener = SimpleNamespace(record=lambda npc, speaker, message: None)
+    npc = SimpleNamespace(
+        key="Ada",
+        ndb=Db(),
+        get_listener=lambda: listener,
+        get_speaker=lambda: None,
+    )
+
+    NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
+
+
 def test_base_npc_has_no_listener_or_speaker_and_is_therefore_inert():
     npc = npc_with(context())
     assert NPC.get_listener(npc) is None
@@ -78,6 +90,48 @@ def test_speaker_builds_llm_messages_from_the_carried_context(monkeypatch):
     answer = Speaker.generate_response(speaker, SimpleNamespace(key="Ada"), memory)
     assert answer == "I am Ada."
     assert seen["messages"][-1] == {"role": "user", "content": "Visitor: Who are you?"}
+
+
+def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
+    memory = context([{"role": "user", "who": "Visitor", "content": "Hello"}])
+    memory.as_messages = lambda: Context.as_messages(memory)
+    listener = SimpleNamespace(record=lambda npc, speaker, message: memory)
+    voice = SimpleNamespace(generate_response_from_messages=lambda name, messages: "Hi")
+    captured = {}
+
+    class Deferred:
+        def addCallback(self, callback):
+            return self
+
+        def addErrback(self, callback):
+            return self
+
+        def addBoth(self, callback):
+            return self
+
+    def fake_defer_to_thread(func, *args):
+        captured["func"] = func
+        captured["args"] = args
+        return Deferred()
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_listener=lambda: listener,
+        get_speaker=lambda: voice,
+    )
+
+    NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
+
+    assert captured["func"] is voice.generate_response_from_messages
+    assert captured["args"] == (
+        "Ada",
+        [{"role": "user", "content": "Visitor: Hello"}],
+    )
+    assert npc.ndb.reply_inflight is True
 
 
 def test_npc_is_an_object_not_an_autonomous_character():
