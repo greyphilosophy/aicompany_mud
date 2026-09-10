@@ -14,6 +14,7 @@ def context(entries=None):
     memory = SimpleNamespace(
         db=Db(entries=list(entries or [])),
         MAX_ENTRIES=Context.MAX_ENTRIES,
+        _ENTRY_ID=Context._ENTRY_ID,
     )
     memory.append = lambda who, message, role="user": Context.append(
         memory, who, message, role
@@ -21,11 +22,35 @@ def context(entries=None):
     memory.incorporate = lambda incoming: Context.incorporate(memory, incoming)
     memory.export = lambda start=None, stop=None: Context.export(memory, start, stop)
     memory.as_messages = lambda: Context.as_messages(memory)
+    memory.snapshot = lambda: Context.snapshot(memory)
     return memory
 
 
 def npc_with(*contents):
     return SimpleNamespace(contents=list(contents))
+
+
+class Deferred:
+    """Tiny synchronous Deferred stand-in for callback-order tests."""
+
+    def addCallback(self, callback):
+        self.callback = callback
+        return self
+
+    def addErrback(self, callback):
+        self.errback = callback
+        return self
+
+    def addBoth(self, callback):
+        self.both = callback
+        return self
+
+    def fire_success(self, result):
+        if hasattr(self, "callback"):
+            result = self.callback(result)
+        if hasattr(self, "both"):
+            result = self.both(result)
+        return result
 
 
 def test_context_is_a_portable_inventory_object():
@@ -38,7 +63,25 @@ def test_context_records_ordered_speech_and_exports_a_copy():
     Context.append(memory, "Alfred", "Hello")
     exported = Context.export(memory)
     exported[0]["content"] = "changed elsewhere"
-    assert memory.db.entries == [{"role": "user", "who": "Alfred", "content": "Hello"}]
+    assert exported[0].get(Context._ENTRY_ID) is None
+    assert Context.export(memory) == [
+        {"role": "user", "who": "Alfred", "content": "Hello"}
+    ]
+
+
+def test_context_reply_can_be_inserted_after_the_snapshot_it_answered():
+    memory = context()
+    memory.append("Visitor", "First")
+    _, snapshot_ids = Context.snapshot(memory)
+    memory.append("Visitor", "Second")
+
+    Context.insert_after_snapshot(memory, snapshot_ids, "Ada", "Hi", role="assistant")
+
+    assert [entry["content"] for entry in Context.export(memory)] == [
+        "First",
+        "Hi",
+        "Second",
+    ]
 
 
 def test_an_npc_can_incorporate_all_or_part_of_another_context():
@@ -51,7 +94,7 @@ def test_an_npc_can_incorporate_all_or_part_of_another_context():
     npc = npc_with(destination)
     npc.get_context = lambda: destination
     assert NPC.incorporate_context(npc, source, 1, 3) is True
-    assert [entry["content"] for entry in destination.db.entries] == ["two", "three"]
+    assert [entry["content"] for entry in Context.export(destination)] == ["two", "three"]
 
 
 def test_listener_records_only_when_carried_by_the_npc():
@@ -60,8 +103,8 @@ def test_listener_records_only_when_carried_by_the_npc():
     npc = npc_with(memory, listener)
     npc.get_context = lambda: memory
     Listener.record(listener, npc, SimpleNamespace(key="Visitor"), "Good morning")
-    assert memory.db.entries[-1]["who"] == "Visitor"
-    assert memory.db.entries[-1]["content"] == "Good morning"
+    assert Context.export(memory)[-1]["who"] == "Visitor"
+    assert Context.export(memory)[-1]["content"] == "Good morning"
 
 
 def test_listener_without_context_degrades_cleanly():
@@ -110,16 +153,6 @@ def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
     voice = Voice()
     captured = {}
 
-    class Deferred:
-        def addCallback(self, callback):
-            return self
-
-        def addErrback(self, callback):
-            return self
-
-        def addBoth(self, callback):
-            return self
-
     def fake_defer_to_thread(func, *args):
         captured["func"] = func
         captured["args"] = args
@@ -131,6 +164,7 @@ def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
         key="Ada",
         db=Db(respond_to_npcs=False),
         ndb=Db(),
+        get_context=lambda: memory,
         get_listener=lambda: listener,
         get_speaker=lambda: voice,
     )
@@ -145,7 +179,55 @@ def test_npc_snapshots_context_before_dispatching_worker_thread(monkeypatch):
     assert npc.ndb.reply_inflight is True
 
 
-def test_speech_heard_while_replying_queues_one_follow_up(monkeypatch):
+def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
+    context_a = context()
+    context_b = context()
+    current = {"context": context_a}
+    spoken = []
+
+    def record(npc, speaker, message):
+        current["context"].append(speaker.key, message)
+        return current["context"]
+
+    listener = SimpleNamespace(record=record)
+
+    class Voice:
+        def generate_response_from_messages(self, name, messages):
+            return "Hi"
+
+    voice = Voice()
+    deferreds = []
+
+    def fake_defer_to_thread(func, *args):
+        deferred = Deferred()
+        deferreds.append(deferred)
+        return deferred
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_context=lambda: current["context"],
+        get_listener=lambda: listener,
+        get_speaker=lambda: voice,
+        say=lambda message: spoken.append(message),
+    )
+
+    NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "From A")
+    current["context"] = context_b
+    deferreds[0].fire_success("Reply to A")
+
+    assert [entry["content"] for entry in Context.export(context_a)] == [
+        "From A",
+        "Reply to A",
+    ]
+    assert Context.export(context_b) == []
+    assert spoken == []
+
+
+def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
     memory = context()
 
     def record(npc, speaker, message):
@@ -161,19 +243,7 @@ def test_speech_heard_while_replying_queues_one_follow_up(monkeypatch):
     voice = Voice()
     deferreds = []
     dispatches = []
-
-    class Deferred:
-        def addCallback(self, callback):
-            self.callback = callback
-            return self
-
-        def addErrback(self, callback):
-            self.errback = callback
-            return self
-
-        def addBoth(self, callback):
-            self.both = callback
-            return self
+    spoken = []
 
     def fake_defer_to_thread(func, *args):
         dispatches.append((func, args))
@@ -190,6 +260,7 @@ def test_speech_heard_while_replying_queues_one_follow_up(monkeypatch):
         get_context=lambda: memory,
         get_listener=lambda: listener,
         get_speaker=lambda: voice,
+        say=lambda message: spoken.append(message),
     )
 
     visitor = SimpleNamespace(key="Visitor")
@@ -198,10 +269,16 @@ def test_speech_heard_while_replying_queues_one_follow_up(monkeypatch):
 
     assert len(dispatches) == 1
     assert npc.ndb.reply_pending is True
-    assert [entry["content"] for entry in memory.db.entries] == ["First", "Second"]
+    assert [entry["content"] for entry in Context.export(memory)] == ["First", "Second"]
 
-    deferreds[0].both("done")
+    deferreds[0].fire_success("Hi")
 
+    assert [entry["content"] for entry in Context.export(memory)] == [
+        "First",
+        "Hi",
+        "Second",
+    ]
+    assert spoken == ["Hi"]
     assert len(dispatches) == 2
     assert npc.ndb.reply_pending is False
     assert npc.ndb.reply_inflight is True
@@ -209,9 +286,58 @@ def test_speech_heard_while_replying_queues_one_follow_up(monkeypatch):
         "Ada",
         [
             {"role": "user", "content": "Visitor: First"},
+            {"role": "assistant", "content": "Hi"},
             {"role": "user", "content": "Visitor: Second"},
         ],
     )
+
+
+def test_pending_follow_up_does_not_cross_into_a_new_context(monkeypatch):
+    context_a = context()
+    context_b = context()
+    current = {"context": context_a}
+
+    def record(npc, speaker, message):
+        current["context"].append(speaker.key, message)
+        return current["context"]
+
+    listener = SimpleNamespace(record=record)
+
+    class Voice:
+        def generate_response_from_messages(self, name, messages):
+            return "Hi"
+
+    voice = Voice()
+    deferreds = []
+    dispatches = []
+
+    def fake_defer_to_thread(func, *args):
+        dispatches.append((func, args))
+        deferred = Deferred()
+        deferreds.append(deferred)
+        return deferred
+
+    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+
+    npc = SimpleNamespace(
+        key="Ada",
+        db=Db(respond_to_npcs=False),
+        ndb=Db(),
+        get_context=lambda: current["context"],
+        get_listener=lambda: listener,
+        get_speaker=lambda: voice,
+        say=lambda message: None,
+    )
+    visitor = SimpleNamespace(key="Visitor")
+
+    NPC.at_heard_say(npc, visitor, "First")
+    NPC.at_heard_say(npc, visitor, "Second")
+    current["context"] = context_b
+    deferreds[0].fire_success("Reply to A")
+
+    assert len(dispatches) == 1
+    assert npc.ndb.reply_pending is False
+    assert Context.export(context_b) == []
 
 
 def test_npc_is_an_object_not_an_autonomous_character():
