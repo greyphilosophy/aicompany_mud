@@ -239,14 +239,20 @@ class NPC(Object):
         own.incorporate(other_context.export(start, stop))
         return True
 
-    def _is_current_context(self, context):
-        """Compare contexts by object identity, falling back to Evennia DB identity."""
-        current = self.get_context()
-        if current is context:
+    @staticmethod
+    def _same_object(left, right):
+        """Compare Evennia objects by identity, falling back to database identity."""
+        if left is right:
             return True
-        current_id = getattr(current, "id", None)
-        context_id = getattr(context, "id", None)
-        return current_id is not None and current_id == context_id
+        left_id = getattr(left, "id", None)
+        right_id = getattr(right, "id", None)
+        return left_id is not None and left_id == right_id
+
+    def _is_current_context(self, context):
+        return NPC._same_object(self.get_context(), context)
+
+    def _is_current_speaker(self, speaker):
+        return NPC._same_object(self.get_speaker(), speaker)
 
     def _dispatch_reply(self, context, voice):
         """Snapshot current context and dispatch one LLM-backed reply."""
@@ -268,13 +274,19 @@ class NPC(Object):
                 logger.log_trace()
                 return response
 
-            # A reply belongs to the Context that produced it. If that Context was
-            # swapped out while the LLM was working, preserve the reply there but
-            # don't make the NPC speak stale memory from a no-longer-carried Context.
+            # A reply belongs to the Context that produced it. Equipment can be
+            # swapped while the LLM is working, so only speak if both the original
+            # Context and Speaker are still the ones currently carried.
             if not NPC._is_current_context(self, context):
                 logger.log_warn(
                     f"[NPC {self.key}] reply recorded to its original Context, "
                     "but that Context is no longer carried; suppressing stale speech"
+                )
+                return response
+            if not NPC._is_current_speaker(self, voice):
+                logger.log_warn(
+                    f"[NPC {self.key}] reply recorded, but its Speaker is no longer "
+                    "carried; suppressing stale speech"
                 )
                 return response
 
