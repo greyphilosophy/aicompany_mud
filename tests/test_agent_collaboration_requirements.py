@@ -236,7 +236,7 @@ def test_unscoped_npc_speech_is_terminal_and_task_speech_is_written_once():
 
     task_context = context()
     task = task_state(max_turns=3, working_context=task_context)
-    target = SimpleNamespace(key="Alice", id=2)
+    target = SimpleNamespace(key="Alice", id=2, location=npc.location)
     assert NPC.say(
         npc,
         "What do you know?",
