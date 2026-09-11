@@ -39,7 +39,7 @@ def durable_memory(entries=None):
     return memory
 
 
-def task_state(max_turns=4, max_no_progress_turns=2):
+def task_state(max_turns=4, max_no_progress_turns=2, working_context=None):
     task = SimpleNamespace(
         db=Db(
             objective="Solve the problem",
@@ -60,6 +60,7 @@ def task_state(max_turns=4, max_no_progress_turns=2):
         task, actor, message, progress
     )
     task.mark_progress = lambda note=None: Task.mark_progress(task, note)
+    task.get_context = lambda: working_context
     return task
 
 
@@ -88,17 +89,24 @@ def test_long_working_conversation_cannot_overwrite_durable_memory():
     ]
 
 
-def test_task_scoped_speech_uses_task_working_context_not_actor_context():
+def test_task_listener_consumes_shared_context_without_copying_into_actor_memory():
     actor_context = context()
-    task_context = context()
-    task = SimpleNamespace(get_context=lambda: task_context)
+    task_context = context(
+        [{"role": "user", "who": "Alice", "content": "The key is in the observatory"}]
+    )
+    task = task_state(working_context=task_context)
     actor = SimpleNamespace(get_context=lambda: actor_context)
     speaker = SimpleNamespace(key="Alice")
 
-    Listener.record(SimpleNamespace(), actor, speaker, "The key is in the observatory", task=task)
+    returned = Listener.record(
+        SimpleNamespace(), actor, speaker, "The key is in the observatory", task=task
+    )
 
+    assert returned is task_context
     assert Context.export(actor_context) == []
-    assert Context.export(task_context)[0]["content"] == "The key is in the observatory"
+    assert [entry["content"] for entry in Context.export(task_context)] == [
+        "The key is in the observatory"
+    ]
 
 
 def test_task_turn_budget_hard_stops_collaboration():
@@ -211,7 +219,7 @@ def test_tool_authorization_is_independent_of_actor_controller_type():
     assert Tool.can_use(tool, stranger) is False
 
 
-def test_unscoped_npc_speech_is_marked_terminal_but_task_speech_can_invite_reply():
+def test_unscoped_npc_speech_is_terminal_and_task_speech_is_written_once():
     calls = []
 
     class Room:
@@ -226,10 +234,29 @@ def test_unscoped_npc_speech_is_marked_terminal_but_task_speech_can_invite_reply
     assert NPC.say(npc, "Hello") is True
     assert calls[-1]["allow_reply"] is False
 
-    task = task_state(max_turns=3)
+    task_context = context()
+    task = task_state(max_turns=3, working_context=task_context)
     target = SimpleNamespace(key="Alice", id=2)
-    assert NPC.say(npc, "What do you know?", task=task, target=target, allow_reply=True) is True
+    assert NPC.say(
+        npc,
+        "What do you know?",
+        task=task,
+        target=target,
+        allow_reply=True,
+    ) is True
+
     assert calls[-1]["task"] is task
     assert calls[-1]["target"] is target
     assert calls[-1]["allow_reply"] is True
     assert task.db.turn_count == 1
+    assert [entry["content"] for entry in Context.export(task_context)] == [
+        "What do you know?"
+    ]
+
+    recipient = SimpleNamespace(get_context=lambda: context())
+    Listener.record(
+        SimpleNamespace(), recipient, npc, "What do you know?", task=task
+    )
+    assert [entry["content"] for entry in Context.export(task_context)] == [
+        "What do you know?"
+    ]
