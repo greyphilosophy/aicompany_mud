@@ -34,7 +34,9 @@ def context(entries=None):
 
 
 def npc_with(*contents):
-    return SimpleNamespace(contents=list(contents))
+    npc = SimpleNamespace(contents=list(contents))
+    npc._first_carried = lambda cls: NPC._first_carried(npc, cls)
+    return npc
 
 
 class Failure:
