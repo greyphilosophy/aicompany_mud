@@ -26,7 +26,6 @@ class Context(Object):
         self.db.desc = "A bounded working record of recent conversation."
 
     def _entries_with_ids(self):
-        """Return copied entries, assigning internal IDs to legacy entries as needed."""
         entries = [dict(entry) for entry in list(self.db.entries or [])]
         changed = False
         for entry in entries:
@@ -50,7 +49,6 @@ class Context(Object):
         self.db.entries = entries[-self.MAX_ENTRIES :]
 
     def insert_after_snapshot(self, snapshot_ids, who, message, role="assistant"):
-        """Insert a reply immediately after the history snapshot that produced it."""
         entries = Context._entries_with_ids(self)
         snapshot_ids = set(snapshot_ids or [])
         insert_at = 0
@@ -69,7 +67,6 @@ class Context(Object):
         self.db.entries = entries[-self.MAX_ENTRIES :]
 
     def incorporate(self, entries):
-        """Merge a whole or partial history supplied by another context."""
         for entry in entries or []:
             if not isinstance(entry, dict) or not entry.get("content"):
                 continue
@@ -80,7 +77,6 @@ class Context(Object):
             )
 
     def export(self, start=None, stop=None):
-        """Return a copy of all entries, or of the requested slice."""
         entries = Context._entries_with_ids(self)[start:stop]
         return [
             {key: value for key, value in entry.items() if key != self._ENTRY_ID}
@@ -104,7 +100,6 @@ class Context(Object):
         return Context._messages_from_entries(Context._entries_with_ids(self))
 
     def snapshot(self):
-        """Return LLM messages plus stable IDs for the exact history being answered."""
         entries = Context._entries_with_ids(self)
         return (
             Context._messages_from_entries(entries),
@@ -207,10 +202,12 @@ class Task(Object):
     def can_continue(self):
         if self.db.status != "active":
             return False
-        if int(self.db.turn_count or 0) >= int(self.db.max_turns or self.DEFAULT_MAX_TURNS):
+        if int(self.db.turn_count or 0) >= int(
+            self.db.max_turns or Task.DEFAULT_MAX_TURNS
+        ):
             return False
         if int(self.db.no_progress_turns or 0) >= int(
-            self.db.max_no_progress_turns or self.DEFAULT_MAX_NO_PROGRESS_TURNS
+            self.db.max_no_progress_turns or Task.DEFAULT_MAX_NO_PROGRESS_TURNS
         ):
             return False
         return True
@@ -224,10 +221,12 @@ class Task(Object):
         elif progress is False:
             self.db.no_progress_turns = int(self.db.no_progress_turns or 0) + 1
 
-        if int(self.db.turn_count or 0) >= int(self.db.max_turns or self.DEFAULT_MAX_TURNS):
+        if int(self.db.turn_count or 0) >= int(
+            self.db.max_turns or Task.DEFAULT_MAX_TURNS
+        ):
             self.db.status = "budget_exhausted"
         elif int(self.db.no_progress_turns or 0) >= int(
-            self.db.max_no_progress_turns or self.DEFAULT_MAX_NO_PROGRESS_TURNS
+            self.db.max_no_progress_turns or Task.DEFAULT_MAX_NO_PROGRESS_TURNS
         ):
             self.db.status = "stalled"
         return True
@@ -268,7 +267,9 @@ class Tool(Object):
 
     def invoke(self, actor, *args, **kwargs):
         if not self.can_use(actor):
-            raise PermissionError(f"{getattr(actor, 'key', actor)} is not authorized to use {self.key}")
+            raise PermissionError(
+                f"{getattr(actor, 'key', actor)} is not authorized to use {self.key}"
+            )
         return self.perform(actor, *args, **kwargs)
 
     def perform(self, actor, *args, **kwargs):
@@ -283,7 +284,11 @@ class Listener(Object):
         self.db.desc = "A listener harness that records nearby speech into working context."
 
     def record(self, npc, speaker, message, task=None):
-        context = task.get_context() if task and hasattr(task, "get_context") else npc.get_context()
+        if task is not None and hasattr(task, "get_context"):
+            # Task speech is written once by its speaker into the shared task context.
+            # Listeners consume that context without duplicating the line per listener.
+            return task.get_context()
+        context = npc.get_context()
         if context:
             context.append(getattr(speaker, "key", "unknown"), message, role="user")
         return context
@@ -351,7 +356,6 @@ class Speaker(Object):
     def generate_response_from_messages(
         npc_name, history_messages, providers, system_prompt
     ):
-        """Generate using only plain snapshotted data in the worker thread."""
         history_messages = [dict(message) for message in history_messages or []]
         providers = list(providers or [])
         logger.log_info(
@@ -375,7 +379,6 @@ class Speaker(Object):
         return response
 
     def generate_response(self, npc, context):
-        """Compatibility wrapper for callers that already have live Evennia objects."""
         return Speaker.generate_response_from_messages(
             npc.key,
             context.as_messages(),
@@ -456,14 +459,15 @@ class NPC(Object):
         return True
 
     def remember_context(self, other_context=None, start=None, stop=None, kind="experience"):
-        """Selectively promote working context into durable memory."""
         memory = self.get_memory()
         source_context = other_context or self.get_context()
         if not memory or not source_context:
             return 0
         count = 0
         for entry in source_context.export(start, stop):
-            if memory.remember(entry.get("content"), source=entry.get("who"), kind=kind):
+            if memory.remember(
+                entry.get("content"), source=entry.get("who"), kind=kind
+            ):
                 count += 1
         return count
 
@@ -485,7 +489,11 @@ class NPC(Object):
         name = str(getattr(self, "key", "") or "").strip()
         if not name:
             return False
-        return bool(re.search(rf"(?<!\w){re.escape(name)}(?!\w)", str(message), re.IGNORECASE))
+        return bool(
+            re.search(
+                rf"(?<!\w){re.escape(name)}(?!\w)", str(message), re.IGNORECASE
+            )
+        )
 
     def should_respond_to_speech(
         self,
@@ -495,7 +503,6 @@ class NPC(Object):
         target=None,
         allow_reply=None,
     ):
-        """Controller-agnostic gate for deciding whether speech deserves a reply."""
         if not speaker or NPC._same_object(self, speaker):
             return False
         if target is not None and not NPC._same_object(self, target):
@@ -511,10 +518,8 @@ class NPC(Object):
         if NPC._is_addressed(self, message):
             return True
 
-        # Raw room speech carries no reply-control metadata. Preserve the existing
-        # conversational behavior for players and other actors alike; replies emitted
-        # by this NPC explicitly set allow_reply=False unless they are task-scoped,
-        # which prevents controller-agnostic feedback loops.
+        # Raw actor speech has no hidden reply-control metadata. This preserves the
+        # existing player-facing behavior without checking what controls the speaker.
         if allow_reply is None:
             return True
 
@@ -523,7 +528,9 @@ class NPC(Object):
             active_task = self.get_active_task()
         except Exception:
             active_task = None
-        if active_task and NPC._same_object(getattr(active_task.db, "requester", None), speaker):
+        if active_task and NPC._same_object(
+            getattr(active_task.db, "requester", None), speaker
+        ):
             return "?" in str(message)
         return False
 
@@ -554,7 +561,9 @@ class NPC(Object):
 
     def _dispatch_reply(self, context, voice, heard_from=None, task=None):
         npc_name = str(self.key)
-        history_messages, history_ids = NPC._history_for_reply(self, context, task=task)
+        history_messages, history_ids = NPC._history_for_reply(
+            self, context, task=task
+        )
         providers = voice.providers()
         system_prompt = str(voice.SYSTEM_PROMPT)
         logger.log_info(f"[NPC {self.key}] dispatching LLM call in thread")
@@ -575,20 +584,22 @@ class NPC(Object):
 
         def _say(response):
             logger.log_info(f"[NPC {self.key}] callback fired, recording reply")
-            try:
-                Context.insert_after_snapshot(
-                    context, history_ids, self.key, response, role="assistant"
-                )
-            except Exception:
-                logger.log_trace()
-                return response
+            if task is None:
+                try:
+                    Context.insert_after_snapshot(
+                        context, history_ids, self.key, response, role="assistant"
+                    )
+                except Exception:
+                    logger.log_trace()
+                    return response
 
-            if task is None and not NPC._is_current_context(self, context):
-                logger.log_warn(
-                    f"[NPC {self.key}] reply recorded to its original Context, "
-                    "but that Context is no longer carried; suppressing stale speech"
-                )
-                return response
+                if not NPC._is_current_context(self, context):
+                    logger.log_warn(
+                        f"[NPC {self.key}] reply recorded to its original Context, "
+                        "but that Context is no longer carried; suppressing stale speech"
+                    )
+                    return response
+
             if not NPC._is_current_speaker(self, voice):
                 logger.log_warn(
                     f"[NPC {self.key}] reply recorded, but its Speaker is no longer "
@@ -597,16 +608,23 @@ class NPC(Object):
                 return response
 
             logger.log_info(f"[NPC {self.key}] speaking: {str(response)[:120]}")
-            self.say(
-                response,
-                task=task,
-                target=heard_from,
-                allow_reply=True if task is not None else False,
-            )
+            if task is None:
+                # Preserve compatibility with existing one-argument say() callers and
+                # mocks. NPC.say itself marks unscoped autonomous speech terminal.
+                self.say(response)
+            else:
+                self.say(
+                    response,
+                    task=task,
+                    target=heard_from,
+                    allow_reply=True,
+                )
             return response
 
         def _failed(failure):
-            logger.log_err(f"[NPC {self.key}] response failure:\n{failure.getTraceback()}")
+            logger.log_err(
+                f"[NPC {self.key}] response failure:\n{failure.getTraceback()}"
+            )
             return None
 
         def _finished(result):
@@ -629,9 +647,11 @@ class NPC(Object):
                         or NPC._is_current_context(self, pending_context)
                     )
                 )
-                task_is_valid = not pending_task or not hasattr(
-                    pending_task, "can_continue"
-                ) or pending_task.can_continue()
+                task_is_valid = (
+                    not pending_task
+                    or not hasattr(pending_task, "can_continue")
+                    or pending_task.can_continue()
+                )
                 if context_is_valid and pending_voice and task_is_valid:
                     logger.log_info(
                         f"[NPC {self.key}] dispatching one queued follow-up reply"
@@ -710,7 +730,9 @@ class NPC(Object):
         self.ndb.reply_pending_context = None
         self.ndb.reply_pending_speaker = None
         self.ndb.reply_pending_task = None
-        NPC._dispatch_reply(self, context, voice, heard_from=speaker, task=task)
+        NPC._dispatch_reply(
+            self, context, voice, heard_from=speaker, task=task
+        )
 
     def say(self, message, task=None, target=None, allow_reply=None):
         """Speak as an actor and attach hidden collaboration metadata when needed."""
@@ -722,16 +744,26 @@ class NPC(Object):
                 return False
             if hasattr(task, "record_turn"):
                 task.record_turn(self, message)
+            task_context = task.get_context() if hasattr(task, "get_context") else None
+            if task_context:
+                # Shared task transcripts use speaker-labelled user records rather than
+                # assistant roles, since the same transcript is viewed by every actor.
+                task_context.append(self.key, message, role="user")
             task_can_continue = task.can_continue()
             if allow_reply is None:
                 allow_reply = task_can_continue
             else:
                 allow_reply = bool(allow_reply and task_can_continue)
         elif allow_reply is None:
+            # Unscoped autonomous replies do not invite another autonomous reply.
             allow_reply = False
 
-        logger.log_info(f"[NPC {self.key}] broadcasting to room: {str(message)[:120]}")
-        self.location.msg_contents(f'{self.key} says, "{message}"', from_obj=self)
+        logger.log_info(
+            f"[NPC {self.key}] broadcasting to room: {str(message)[:120]}"
+        )
+        self.location.msg_contents(
+            f'{self.key} says, "{message}"', from_obj=self
+        )
         if hasattr(self.location, "handle_speech"):
             self.location.handle_speech(
                 self,
