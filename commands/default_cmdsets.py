@@ -19,6 +19,7 @@ from commands.dig import CmdDigSmart
 from commands.drink import CmdDrink, CmdCheckAbilities
 from commands.regen import CmdRegen
 from commands.tools import CmdUseTool
+from commands.inventory import CmdGet
 
 class CharacterCmdSet(default_cmds.CharacterCmdSet):
     """
@@ -42,6 +43,7 @@ class CharacterCmdSet(default_cmds.CharacterCmdSet):
         self.add(CmdCheckAbilities())
         self.add(CmdRegen())
         self.add(CmdUseTool())
+        self.add(CmdGet())
 
 
 class AccountCmdSet(default_cmds.AccountCmdSet):
