@@ -150,6 +150,11 @@ class Brain(Object):
     def wake(self, actor, observation=None):
         if actor.get_brain() is not self:
             return False
+        # This consideration supersedes any activation already queued by a move.
+        pending_wake = actor.ndb.agency_wake_call
+        if pending_wake and pending_wake.active():
+            pending_wake.cancel()
+        actor.ndb.agency_wake_call = None
         actor.ndb.agency_observation = observation or {}
         if actor.ndb.agency_inflight or actor.ndb.reply_inflight:
             actor.ndb.agency_pending = True
@@ -191,7 +196,11 @@ class Brain(Object):
         actor.ndb.agency_state = "thinking"
         actor.ndb.agency_pending = False
         tools = [
-            tool for tool in actor.get_tools() if tool.can_use(actor) and tool.ACTIONS
+            tool
+            for tool in actor.get_tools()
+            if tool.can_use(actor)
+            and tool.access(actor, "use", default=True)
+            and tool.ACTIONS
         ]
         tool_map = {tool.dbref: tool for tool in tools}
         local = (
@@ -248,6 +257,7 @@ class Brain(Object):
         task_revision = task.ndb.agency_revision if task else None
         task_owner = task.location if task else None
         task_context = task.get_context() if task else None
+        task_objective = snapshot["selected_task"]["objective"] if task else None
         request_speaker = observation.get("speaker")
 
         def current():
@@ -265,6 +275,7 @@ class Brain(Object):
                         and task.location == task_owner
                         and task.ndb.agency_revision == task_revision
                         and task.get_context() == task_context
+                        and str(task.db.objective) == task_objective
                         and budget_task(task) == budget
                         and int(budget.db.action_count or 0) <= decision_limit(budget)
                     )

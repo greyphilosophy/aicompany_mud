@@ -202,6 +202,7 @@ class Task(Object):
         if max_no_progress_turns is not None:
             self.db.max_no_progress_turns = max(1, int(max_no_progress_turns))
         self.db.status = "active"
+        self.ndb.agency_revision = uuid4().hex
         if hasattr(self.location, "reconsider"):
             self.location.reconsider()
         return self

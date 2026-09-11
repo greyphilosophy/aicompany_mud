@@ -589,3 +589,41 @@ def test_subtask_budget_does_not_reset_when_transferred(world):
     world.clock.advance(0)
     assert budget_task(child) == parent
     assert not world.jobs
+
+
+def test_reconfiguring_task_cannot_complete_new_objective_with_old_answer(world):
+    equip(world)
+    task = world.npc.create_task("Find the key")
+    task.configure("Repair the generator", assignee=world.npc)
+    decide(world, {"action": "complete", "result": "The key is under the mat"}, 0)
+    assert task.db.status == "active"
+    assert task.db.result is None
+    assert len(world.jobs) == 2
+    assert world.jobs[-1][1][0]["selected_task"]["objective"] == "Repair the generator"
+
+
+def test_direct_objective_edit_invalidates_pending_completion(world):
+    equip(world)
+    task = world.npc.create_task("Find the key")
+    task.db.objective = "Repair the generator"
+    decide(world, {"action": "complete", "result": "The key is under the mat"})
+    assert task.db.status == "active"
+    assert task.db.result is None
+
+
+def test_immediate_task_wake_consumes_queued_brain_attachment_wake(world):
+    # As in setup scripts: create Brain and task before the next reactor tick.
+    create_object(Brain, key="Brain", location=world.npc)
+    world.npc.create_task("Find the key")
+    assert len(world.jobs) == 1
+    decide(world, {"action": "wait"})
+    world.clock.advance(0)
+    assert len(world.jobs) == 1
+
+
+def test_locked_tools_are_not_advertised_as_available(world):
+    pad = create_object(StickyNotePad, key="Locked notes", location=world.npc)
+    pad.locks.add("use:false()")
+    equip(world)
+    world.npc.create_task("Organize work")
+    assert pad.dbref not in [tool["id"] for tool in world.jobs[0][1][0]["tools"]]
