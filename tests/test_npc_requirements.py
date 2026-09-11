@@ -175,11 +175,11 @@ def test_npc_snapshots_all_evennia_state_before_worker_thread(monkeypatch):
         captured["args"] = args
         return Deferred()
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fake_defer_to_thread)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -208,7 +208,7 @@ def test_synchronous_dispatch_failure_does_not_wedge_npc(monkeypatch):
     voice = Voice()
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: SimpleNamespace(record=record),
@@ -218,7 +218,7 @@ def test_synchronous_dispatch_failure_does_not_wedge_npc(monkeypatch):
     def fail_dispatch(*args, **kwargs):
         raise RuntimeError("thread pool unavailable")
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fail_dispatch)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fail_dispatch)
     NPC.at_heard_say(npc, SimpleNamespace(key="Visitor"), "Hello")
 
     assert npc.ndb.reply_inflight is False
@@ -243,11 +243,11 @@ def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
         deferreds.append(deferred)
         return deferred
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fake_defer_to_thread)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: current["context"],
         get_listener=lambda: listener,
@@ -285,11 +285,11 @@ def test_reply_is_suppressed_if_original_speaker_harness_is_removed(monkeypatch)
         deferreds.append(deferred)
         return deferred
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fake_defer_to_thread)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -328,11 +328,11 @@ def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
         deferreds.append(deferred)
         return deferred
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fake_defer_to_thread)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -389,11 +389,11 @@ def test_failed_reply_still_dispatches_queued_follow_up(monkeypatch):
         deferreds.append(deferred)
         return deferred
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fake_defer_to_thread)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -435,11 +435,11 @@ def test_pending_follow_up_does_not_cross_into_a_new_context(monkeypatch):
         deferreds.append(deferred)
         return deferred
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", fake_defer_to_thread)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", fake_defer_to_thread)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: current["context"],
         get_listener=lambda: listener,

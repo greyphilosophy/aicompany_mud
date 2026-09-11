@@ -18,6 +18,7 @@ from evennia import default_cmds
 from commands.dig import CmdDigSmart
 from commands.drink import CmdDrink, CmdCheckAbilities
 from commands.regen import CmdRegen
+from commands.tools import CmdUseTool
 
 class CharacterCmdSet(default_cmds.CharacterCmdSet):
     """
@@ -40,6 +41,7 @@ class CharacterCmdSet(default_cmds.CharacterCmdSet):
         self.add(CmdDrink())
         self.add(CmdCheckAbilities())
         self.add(CmdRegen())
+        self.add(CmdUseTool())
 
 
 class AccountCmdSet(default_cmds.AccountCmdSet):

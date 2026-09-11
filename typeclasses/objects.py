@@ -11,9 +11,10 @@ with a location in the game world (like Characters, Rooms, Exits).
 from evennia.objects.objects import DefaultObject
 from evennia.utils.utils import inherits_from
 from utils.image_mixin import ImageMixin
+from typeclasses.actors import ActorMixin
 
 
-class ObjectParent:
+class ObjectParent(ActorMixin):
     """
     This is a mixin that can be used to override *all* entities inheriting at
     some distance from DefaultObject (Objects, Exits, Characters and Rooms).
@@ -22,6 +23,12 @@ class ObjectParent:
     of the derived classes has itself defined that same hook already, that will
     take precedence.
     """
+
+
+    def at_post_move(self, source_location, **kwargs):
+        super().at_post_move(source_location, **kwargs)
+        from typeclasses.agency import moved
+        moved(self, source_location)
 
 
 class Object(ImageMixin, ObjectParent, DefaultObject):

@@ -1,7 +1,8 @@
 # Bounded actor collaboration
 
-This feature supplies task-scoped NPC conversations, not a general autonomous
-executor. Actors are not classified by player/NPC controller type when deciding
+This document describes the legacy task-scoped speech API. For the Brain-driven
+reasoning loop and executable tools, see [Composable agency](composable-agency.md).
+Speaker-only automatic replies now require `npc.db.legacy_autoreply = True`. Actors are not classified by player/NPC controller type when deciding
 whether to respond. Speech routing still requires a SmartRoom and Listener/Speaker
 equipment.
 
@@ -39,9 +40,9 @@ the task; an operator can retry the question while budget remains.
 
 - Completion and progress are model judgments, not independently verified results.
   The hard turn budget remains the deterministic safeguard against endless exchanges.
-- `Tool` is an abstract, authorization-checked Python interface. There are no concrete
-  tools or model tool-call dispatcher in this feature. Tool discovery/execution,
-  scheduling, and external objectives require further harness work.
+- `Tool` is an abstract, authorization-checked Python interface. The composable
+  agency feature adds Speaker and StickyNotePad actions plus a Brain dispatcher.
+  Tool fabrication, external execution, and scheduling remain future features.
 - Ordinary player `say` is unscoped. No player command currently selects a task or
   joins its transcript. An NPC can address a player, but a normal spoken answer
   does not resume that task. Controller-neutral response gating is not yet a full
@@ -52,8 +53,9 @@ the task; an operator can retry the question while budget remains.
   their inventory. New NPCs receive one automatically. Memory retains at most 200
   promoted entries; Context retains at most 100 conversation entries. These are
   entry limits, not token limits.
-- These are local conversations. Task transfer does not launch work automatically.
-  Use `accept_task()` to transfer assignment, then explicitly start a new exchange.
+- These are local conversations. A Brain-equipped holder considers acquired active
+  tasks on the next reactor turn. Legacy Speaker-only actors still require an
+  explicitly started exchange after transfer.
 - An NPC coalesces speech received while busy into one pending response. This is not
   a multi-task scheduler; simultaneous unrelated requests can supersede a queued one.
 
