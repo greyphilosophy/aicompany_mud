@@ -9,7 +9,8 @@ from twisted.internet.threads import deferToThread
 from twisted.internet import reactor
 
 from typeclasses.objects import Object
-from typeclasses.npcs import Context, Memory, NPC, Speaker, Task, Tool, Listener
+from typeclasses.actors import ActorMixin
+from typeclasses.npcs import Context, Memory, Speaker, Task, Tool, Listener
 from utils.llm_client import build_default_client_from_env
 from utils.llm_client import LLMProvider
 
@@ -58,17 +59,13 @@ def moved(obj, source):
             if isinstance(holder, Task):
                 holder.ndb.agency_revision = uuid4().hex
                 holder = holder.location
-            if isinstance(holder, NPC):
+            if isinstance(holder, ActorMixin):
                 holder.ndb.agency_revision = uuid4().hex
         if isinstance(obj, Task):
-            from evennia.objects.objects import DefaultCharacter
-
             obj.db.assignee = (
-                obj.location
-                if isinstance(obj.location, (NPC, DefaultCharacter))
-                else None
+                obj.location if isinstance(obj.location, ActorMixin) else None
             )
-        if isinstance(obj, (Brain, Task)) and isinstance(obj.location, NPC):
+        if isinstance(obj, (Brain, Task)) and isinstance(obj.location, ActorMixin):
             if isinstance(obj, Brain) or obj.can_continue():
                 schedule_wake(obj.location)
 

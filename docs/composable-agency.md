@@ -6,7 +6,9 @@ and independent completion validation are separate features.
 
 ## Acceptance requirements
 
-1. An NPC without a Brain observes through its Listener but makes no new decisions.
+1. A holder without a Brain observes through its Listener but makes no new decisions.
+   Capabilities belong to equipment: ordinary project Objects, NPCs and Characters
+   share the same ActorMixin. Transferring equipment transfers its capabilities.
    A Brain can decide to wait instead of answering speech. Speaker supplies speech,
    not the default reasoning loop.
 2. Active tasks carried directly by an actor are its objectives. Transfer/drop
@@ -42,7 +44,7 @@ alongside an equipped Brain.
 
 ## Setup and use
 
-Equip an NPC in a SmartRoom from the Evennia shell (the model connection uses the
+Equip a holder in a SmartRoom from the Evennia shell (the model connection uses the
 existing local-provider configuration and optional OpenAI fallback):
 
 ```python
@@ -71,8 +73,9 @@ tool Notes/create_task = {"objective": "Find the generator key", "priority": 3}
 ```
 
 The pad gives the task to its user. Transfer the task using normal world movement
-or the shell `task.move_to(nova)`; the new holder acquires that want. A player can
-carry and create task notes but is not automatically controlled by a Brain.
+or the shell `task.move_to(nova)`; the new holder acquires that want. Characters use the same capability interface. A player can carry task notes
+without automatic action; deliberately equipping a Brain also grants that
+Character automated decisions, just as it does an ordinary object.
 
 A Brain's model output uses a stable object identifier from its snapshot:
 
@@ -138,3 +141,30 @@ silence, conversation routing, stale/deleted equipment, and failure recovery.
 The repository-wide suite has known collection blockers in the optional image
 backend and external gateway tests; those components are not exercised by this
 feature's focused settings.
+
+## Moving capabilities into an ordinary object
+
+`NPC` is a starter body with a default Context and Memory; it has no exclusive
+reasoning or tool-use powers. Ordinary `typeclasses.objects.Object` instances
+(and their subclasses) gain those capabilities from the same carried equipment:
+
+```python
+from evennia.utils.create import create_object
+from typeclasses.objects import Object
+
+box = create_object(Object, key="Wooden box", location=nova.location)
+for equipment in list(nova.contents):
+    equipment.move_to(box)
+```
+
+This moves the actual Context/Memory objects, preserving their contents, and moves
+any task objectives and tools along with the Brain, Listener and Speaker. The old
+body loses the transferred capabilities. Pending actions for that body are
+invalidated; the new holder considers active tasks on the next reactor turn.
+Without carried tasks, it can wait for speech through its Listener.
+
+Objects without equipment stay inert and are not automatically provisioned with
+memories or a Brain. Shared actor behavior lives in `typeclasses/actors.py`, wired
+through `ObjectParent`; custom body typeclasses can use that same mixin. Existing
+Room/SmartRoom manager classes remain passive locations, not equipment holders
+that gain agency merely because a Brain is dropped on the ground.

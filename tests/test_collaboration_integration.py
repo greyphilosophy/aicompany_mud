@@ -35,7 +35,7 @@ def world(transactional_db, monkeypatch, settings):
         jobs.append((function, args, deferred))
         return deferred
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", dispatch)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", dispatch)
     return room, actors, jobs
 
 

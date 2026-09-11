@@ -58,7 +58,7 @@ def test_speaker_without_brain_is_inert(world, monkeypatch):
     def forbidden(*args):
         pytest.fail("Speaker must not reason without a Brain")
 
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", forbidden)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", forbidden)
     world.npc.at_heard_say(world.other, "Hello")
     assert len(world.npc.get_context().export()) == 1
     assert world.jobs == []
@@ -427,7 +427,7 @@ def test_task_context_roundtrip_invalidates_pending_work(world):
 def test_equipping_brain_during_legacy_call_does_not_overlap(world, monkeypatch):
     world.npc.db.legacy_autoreply = True
     old = Deferred()
-    monkeypatch.setattr("typeclasses.npcs.deferToThread", lambda *args: old)
+    monkeypatch.setattr("typeclasses.actors.deferToThread", lambda *args: old)
     world.npc.at_heard_say(world.other, "Hello")
     equip(world)
     world.npc.at_heard_say(world.other, "Think about this")
