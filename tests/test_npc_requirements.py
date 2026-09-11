@@ -179,7 +179,7 @@ def test_npc_snapshots_all_evennia_state_before_worker_thread(monkeypatch):
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -208,7 +208,7 @@ def test_synchronous_dispatch_failure_does_not_wedge_npc(monkeypatch):
     voice = Voice()
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: SimpleNamespace(record=record),
@@ -247,7 +247,7 @@ def test_reply_stays_with_the_context_that_generated_it(monkeypatch):
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: current["context"],
         get_listener=lambda: listener,
@@ -289,7 +289,7 @@ def test_reply_is_suppressed_if_original_speaker_harness_is_removed(monkeypatch)
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -332,7 +332,7 @@ def test_speech_heard_while_replying_queues_one_ordered_follow_up(monkeypatch):
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -393,7 +393,7 @@ def test_failed_reply_still_dispatches_queued_follow_up(monkeypatch):
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: memory,
         get_listener=lambda: listener,
@@ -439,7 +439,7 @@ def test_pending_follow_up_does_not_cross_into_a_new_context(monkeypatch):
 
     npc = SimpleNamespace(
         key="Ada",
-        db=Db(respond_to_npcs=False),
+        db=Db(respond_to_npcs=False, legacy_autoreply=True),
         ndb=Db(),
         get_context=lambda: current["context"],
         get_listener=lambda: listener,

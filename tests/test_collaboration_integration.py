@@ -26,6 +26,7 @@ def world(transactional_db, monkeypatch, settings):
     ]
     jobs = []
     for actor in actors:
+        actor.db.legacy_autoreply = True
         create_object(Listener, key="Listener", location=actor)
         create_object(Speaker, key="Speaker", location=actor)
 

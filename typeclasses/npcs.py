@@ -174,6 +174,9 @@ class Task(Object):
         self.db.no_progress_turns = 0
         self.db.max_no_progress_turns = self.DEFAULT_MAX_NO_PROGRESS_TURNS
         self.db.progress_notes = []
+        self.db.priority = 0
+        self.db.action_count = 0
+        self.db.max_actions = 12
         self.db.desc = "A transferable objective with bounded working context."
         if not self.get_context():
             create.create_object(
@@ -199,6 +202,8 @@ class Task(Object):
         if max_no_progress_turns is not None:
             self.db.max_no_progress_turns = max(1, int(max_no_progress_turns))
         self.db.status = "active"
+        if hasattr(self.location, "reconsider"):
+            self.location.reconsider()
         return self
 
     def can_continue(self):
@@ -269,14 +274,56 @@ class Tool(Object):
         location_id = getattr(self.location, "id", None)
         return actor_id is not None and actor_id == location_id
 
-    def invoke(self, actor, *args, **kwargs):
-        if not self.can_use(actor):
-            raise PermissionError(
-                f"{getattr(actor, 'key', actor)} is not authorized to use {self.key}"
-            )
-        return self.perform(actor, *args, **kwargs)
+    ACTIONS = {}
 
-    def perform(self, actor, *args, **kwargs):
+    def describe_actions(self):
+        import copy
+
+        return copy.deepcopy(self.ACTIONS)
+
+    def invoke(self, actor, action, arguments=None, **context):
+        if (
+            self.pk is None
+            or actor is None
+            or actor.pk is None
+            or not self.can_use(actor)
+            or not self.access(actor, "use", default=True)
+        ):
+            raise PermissionError("Actor is not authorized to use this tool")
+        if not isinstance(action, str) or action not in self.ACTIONS:
+            raise ValueError("Unknown tool action")
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            raise ValueError("Tool arguments must be an object")
+        schema = self.ACTIONS[action]["parameters"]
+        parameters = schema["properties"]
+        if set(arguments) - set(parameters):
+            raise ValueError("Unknown tool argument")
+        cleaned = dict(arguments)
+        for name, spec in parameters.items():
+            if name not in cleaned:
+                if name in schema.get("required", []):
+                    raise ValueError(f"Missing argument: {name}")
+                continue
+            value = cleaned[name]
+            if spec["type"] == "string":
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"{name} must be nonempty text")
+                value = value.strip()
+                if len(value) > spec.get("maxLength", 4000):
+                    raise ValueError(f"{name} is too long")
+                cleaned[name] = value
+            elif spec["type"] == "integer":
+                if type(value) is not int or not spec.get(
+                    "minimum", 0
+                ) <= value <= spec.get("maximum", 100):
+                    raise ValueError(f"{name} must be an integer in range")
+            else:
+                raise ValueError("Unsupported argument schema")
+        return self.perform(actor, action, cleaned, **context)
+
+    def perform(self, actor, action, arguments, **context):
         raise NotImplementedError
 
 
@@ -300,8 +347,54 @@ class Listener(Object):
         return context
 
 
-class Speaker(Object):
+class Speaker(Tool):
     """Equipment that gives the carrying NPC an LLM-backed voice."""
+
+    ACTIONS = {
+        "say": {
+            "description": "Speak locally; an optional target identifies whom you address.",
+            "parameters": {
+                "type": "object",
+                "required": ["message"],
+                "additionalProperties": False,
+                "properties": {
+                    "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    "target": {"type": "string", "minLength": 1, "maxLength": 32},
+                },
+            },
+        }
+    }
+
+    def perform(self, actor, action, arguments, **context):
+        target = None
+        if arguments.get("target"):
+            target = (
+                next(
+                    (
+                        obj
+                        for obj in actor.location.contents
+                        if obj.dbref == arguments["target"] and obj != actor
+                    ),
+                    None,
+                )
+                if actor.location
+                else None
+            )
+            if target is None:
+                raise ValueError("Target is not another local actor")
+        task = context.get("task")
+        if not NPC.say(
+            actor,
+            arguments["message"],
+            task=task,
+            target=target,
+            allow_reply=bool(task and target),
+        ):
+            raise ValueError("Speech cannot be delivered")
+        return {
+            "spoken": arguments["message"],
+            "target": getattr(target, "dbref", None),
+        }
 
     SYSTEM_PROMPT = (
         "You are {name}, an autonomous actor in a text MUD. Other actors may be "
@@ -449,13 +542,23 @@ class NPC(Object):
     def get_speaker(self):
         return self._first_carried(Speaker)
 
+    def get_brain(self):
+        from typeclasses.agency import Brain
+
+        return self._first_carried(Brain)
+
+    def reconsider(self, observation=None):
+        brain = self.get_brain()
+        return brain.wake(self, observation) if brain else False
+
     def get_tasks(self):
-        return [obj for obj in self.contents if isinstance(obj, Task)]
+        return sorted(
+            (obj for obj in self.contents if isinstance(obj, Task)),
+            key=lambda task: (-int(task.db.priority or 0), task.id),
+        )
 
     def get_active_task(self):
-        return next(
-            (task for task in self.get_tasks() if task.db.status == "active"), None
-        )
+        return next((task for task in self.get_tasks() if task.can_continue()), None)
 
     def get_tools(self):
         return [obj for obj in self.contents if isinstance(obj, Tool)]
@@ -640,6 +743,8 @@ class NPC(Object):
 
         def _say(response):
             logger.log_info(f"[NPC {self.key}] callback fired, recording reply")
+            if hasattr(self, "get_brain") and self.get_brain():
+                return response
             if task is not None and not task_is_current():
                 return response
             if task is None:
@@ -697,6 +802,10 @@ class NPC(Object):
         def _finished(result):
             self.ndb.reply_inflight = False
             logger.log_info(f"[NPC {self.key}] reply cycle complete")
+            if hasattr(self, "get_brain") and self.get_brain():
+                self.ndb.reply_pending = False
+                self.reconsider(getattr(self.ndb, "agency_observation", None))
+                return result
 
             if getattr(self.ndb, "reply_pending", False):
                 pending_context = getattr(self.ndb, "reply_pending_context", None)
@@ -783,6 +892,23 @@ class NPC(Object):
             f"[NPC {self.key}] working context now has "
             f"{len(context.db.entries or [])} entr(y/ies)"
         )
+
+        brain = self.get_brain() if hasattr(self, "get_brain") else None
+        if brain:
+            if NPC.should_respond_to_speech(
+                self,
+                speaker,
+                message,
+                task=task,
+                target=target,
+                allow_reply=allow_reply,
+            ):
+                self.reconsider(
+                    {"speaker": speaker, "message": str(message), "task": task}
+                )
+            return
+        if not bool(getattr(self.db, "legacy_autoreply", False)):
+            return
 
         voice = self.get_speaker()
         if not voice:
