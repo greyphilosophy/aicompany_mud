@@ -3,8 +3,11 @@
 import pytest
 from evennia.utils.create import create_object
 from typeclasses.objects import Object
-from typeclasses.npcs import Context, Memory, Task
-from typeclasses.agency import Brain, StickyNotePad
+from typeclasses.components.context import Context
+from typeclasses.components.memory import Memory
+from typeclasses.tasks import Task
+from typeclasses.components.brain import Brain
+from typeclasses.tools.notes import StickyNotePad
 from tests.test_agency_requirements import world, decide
 
 

@@ -2,6 +2,8 @@
 
 This document describes the legacy task-scoped speech API. For the Brain-driven
 reasoning loop and executable tools, see [Composable agency](composable-agency.md).
+The [component architecture guide](component-architecture.md) documents canonical
+imports, construction and saved-object compatibility.
 Speaker-only automatic replies now require `npc.db.legacy_autoreply = True`. Actors are not classified by player/NPC controller type when deciding
 whether to respond. Speech routing still requires a SmartRoom and Listener/Speaker
 equipment.

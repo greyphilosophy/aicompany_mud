@@ -2,7 +2,8 @@
 
 Scope: a portable Brain, an executable tool contract, Speaker as a tool, and a
 StickyNotePad that creates real Task objects. Tool fabrication, wiki/memory tools,
-and independent completion validation are separate features.
+and independent completion validation are separate features. For the module layout,
+tool construction API and compatibility paths, see [Component architecture](component-architecture.md).
 
 ## Acceptance requirements
 
@@ -49,13 +50,14 @@ existing local-provider configuration and optional OpenAI fallback):
 
 ```python
 from evennia.utils.create import create_object
-from typeclasses.agency import Brain, StickyNotePad
-from typeclasses.npcs import Listener, Speaker
+from typeclasses.components.brain import Brain
+from typeclasses.components.listener import Listener
+from typeclasses.tools.factory import create_tool
 
 # nova is an existing NPC object. Add only equipment it does not already carry.
 create_object(Listener, key="Ears", location=nova)
-create_object(Speaker, key="Voice", location=nova)
-create_object(StickyNotePad, key="Notes", location=nova)
+create_tool("speaker", key="Voice", location=nova)
+create_tool("sticky_note_pad", key="Notes", location=nova)
 create_object(Brain, key="Brain", location=nova)
 nova.create_task("Ask Alice where the generator key is")
 ```
@@ -72,8 +74,10 @@ tool Notes
 tool Notes/create_task = {"objective": "Find the generator key", "priority": 3}
 ```
 
-The pad gives the task to its user. Transfer the task using normal world movement
-or the shell `task.move_to(nova)`; the new holder acquires that want. Characters use the same capability interface. A player can carry task notes
+The pad gives the task to its user. Players can use `give <note> to Nova` and
+`get <note> from Nova` (subject to inventory access locks); setup scripts can use
+`task.move_to(nova)`. The new holder acquires that want. See
+[Inventory transfers](inventory-transfers.md). Characters use the same capability interface. A player can carry task notes
 without automatic action; deliberately equipping a Brain also grants that
 Character automated decisions, just as it does an ordinary object.
 

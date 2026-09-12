@@ -16,27 +16,27 @@ class ActorMixin:
         return next((obj for obj in self.contents if isinstance(obj, typeclass)), None)
 
     def get_context(self):
-        from typeclasses.npcs import Context
+        from typeclasses.components.context import Context
 
         return self._first_carried(Context)
 
     def get_memory(self):
-        from typeclasses.npcs import Memory
+        from typeclasses.components.memory import Memory
 
         return self._first_carried(Memory)
 
     def get_listener(self):
-        from typeclasses.npcs import Listener
+        from typeclasses.components.listener import Listener
 
         return self._first_carried(Listener)
 
     def get_speaker(self):
-        from typeclasses.npcs import Speaker
+        from typeclasses.tools.speaker import Speaker
 
         return self._first_carried(Speaker)
 
     def get_brain(self):
-        from typeclasses.agency import Brain
+        from typeclasses.components.brain import Brain
 
         return self._first_carried(Brain)
 
@@ -45,7 +45,7 @@ class ActorMixin:
         return brain.wake(self, observation) if brain else False
 
     def get_tasks(self):
-        from typeclasses.npcs import Task
+        from typeclasses.tasks import Task
 
         return sorted(
             (obj for obj in self.contents if isinstance(obj, Task)),
@@ -56,7 +56,7 @@ class ActorMixin:
         return next((task for task in self.get_tasks() if task.can_continue()), None)
 
     def get_tools(self):
-        from typeclasses.npcs import Tool
+        from typeclasses.tools.base import Tool
 
         return [obj for obj in self.contents if isinstance(obj, Tool)]
 
@@ -67,7 +67,7 @@ class ActorMixin:
         max_turns=None,
         max_no_progress_turns=None,
     ):
-        from typeclasses.npcs import Task
+        from typeclasses.tasks import Task
 
         key = f"Task: {str(objective or '').strip()[:48] or 'untitled'}"
         task = create.create_object(Task, key=key, location=self)
@@ -175,7 +175,7 @@ class ActorMixin:
         return False
 
     def _history_for_reply(self, context, task=None):
-        from typeclasses.npcs import Context
+        from typeclasses.components.context import Context
 
         history_messages, history_ids = Context.snapshot(context)
         prefix = []
@@ -206,7 +206,8 @@ class ActorMixin:
         return prefix + history_messages, history_ids
 
     def _dispatch_reply(self, context, voice, heard_from=None, task=None):
-        from typeclasses.npcs import Context, Speaker
+        from typeclasses.components.context import Context
+        from typeclasses.tools.speaker import Speaker
 
         npc_name = str(self.key)
         history_messages, history_ids = ActorMixin._history_for_reply(

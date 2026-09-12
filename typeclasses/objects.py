@@ -27,7 +27,7 @@ class ObjectParent(ActorMixin):
 
     def at_post_move(self, source_location, **kwargs):
         super().at_post_move(source_location, **kwargs)
-        from typeclasses.agency import moved
+        from systems.agency import moved
         moved(self, source_location)
 
 

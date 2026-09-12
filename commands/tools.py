@@ -2,7 +2,7 @@
 
 import json
 from commands.command import Command
-from typeclasses.npcs import Tool
+from typeclasses.tools.base import Tool
 
 
 class CmdUseTool(Command):
