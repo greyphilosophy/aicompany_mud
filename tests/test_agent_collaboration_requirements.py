@@ -2,7 +2,12 @@
 
 from types import SimpleNamespace
 
-from typeclasses.npcs import Context, Listener, Memory, NPC, Task, Tool
+from typeclasses.components.context import Context
+from typeclasses.components.listener import Listener
+from typeclasses.components.memory import Memory
+from typeclasses.npcs import NPC
+from typeclasses.tasks import Task
+from typeclasses.tools.base import Tool
 from typeclasses.objects import Object
 
 

@@ -7,7 +7,12 @@ import pytest
 from twisted.internet.defer import Deferred
 
 from evennia.utils.create import create_object
-from typeclasses.npcs import Context, Listener, NPC, Speaker, Task, Tool
+from typeclasses.components.context import Context
+from typeclasses.components.listener import Listener
+from typeclasses.npcs import NPC
+from typeclasses.tools.speaker import Speaker
+from typeclasses.tasks import Task
+from typeclasses.tools.base import Tool
 
 
 @pytest.fixture
@@ -150,7 +155,7 @@ def test_absent_target_does_not_consume_budget(world):
 )
 def test_task_response_protocol_rejects_malformed_control(monkeypatch, payload):
     monkeypatch.setattr(
-        "typeclasses.npcs.build_default_client_from_env",
+        "typeclasses.tools.speaker.build_default_client_from_env",
         lambda: SimpleNamespace(chat_json=lambda *args: payload),
     )
     with pytest.raises(ValueError):
@@ -190,7 +195,7 @@ def test_worker_protocol_reaches_task_completion(world, monkeypatch):
     task = nova.create_task("Find the key")
     nova.ask(alice, "Where is it?", task)
     monkeypatch.setattr(
-        "typeclasses.npcs.build_default_client_from_env",
+        "typeclasses.tools.speaker.build_default_client_from_env",
         lambda: SimpleNamespace(
             chat_json=lambda *args: {
                 "response": "Under the mat",

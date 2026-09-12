@@ -1,10 +1,12 @@
-# world/
+# World content
 
-This folder is meant as a miscellaneous folder for all that other stuff
-related to the game. Code which are not commands or typeclasses go
-here, like custom economy systems, combat code, batch-files etc. 
+`prototypes.py` and `help_entries.py` hold game content using Evennia's expected
+entry points. Add reusable content definitions and world setup scripts here.
 
-You can restructure and even rename this folder as best fits your
-sense of organisation. Just remember that if you add new sub
-directories, you must add (optionally empty) `__init__.py` files in
-them for Python to be able to find the modules within. 
+Object behavior belongs in `typeclasses/`; shared runtime coordination belongs
+in `systems/`; service adapters and room helpers belong in `utils/`.
+
+Setup scripts can construct registered tools through
+`typeclasses.tools.factory.create_tool()`. See
+[Component architecture](../docs/component-architecture.md) for examples and
+compatibility paths.

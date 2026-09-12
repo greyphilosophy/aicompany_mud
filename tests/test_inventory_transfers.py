@@ -6,7 +6,7 @@ import pytest
 from evennia.utils.create import create_object
 from typeclasses.objects import Object
 from typeclasses.characters import Character
-from typeclasses.agency import Brain
+from typeclasses.components.brain import Brain
 from tests.test_agency_requirements import world
 
 

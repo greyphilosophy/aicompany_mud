@@ -1,16 +1,27 @@
-# typeclasses/
+# Typeclasses
 
-This directory holds the modules for overloading all the typeclasses
-representing the game entities and many systems of the game. Other
-server functionality not covered here is usually modified by the
-modules in `server/conf/`.
+Typeclasses define persistent Evennia world objects. Runtime coordination lives in
+`systems/`, and service adapters and room helpers live in `utils/`.
 
-Each module holds empty classes that just imports Evennia's defaults.
-Any modifications done to these classes will overload the defaults.
+| Module/package | Responsibility |
+| --- | --- |
+| `objects.py`, `characters.py`, `rooms.py`, `exits.py` | World bodies and locations |
+| `actors.py` | Inventory-derived capabilities shared through `ObjectParent` |
+| `npcs.py` | Carryable starter NPC with Context and Memory |
+| `components/` | Portable Brain, Listener, Context and Memory |
+| `tasks.py` | Transferable objectives and their working contexts |
+| `tools/base.py` | Tool authorization, schemas and invocation |
+| `tools/speaker.py`, `tools/notes.py` | Speech and task-note tools |
+| `tools/factory.py` | Built-in tool definitions and construction |
+| `agency.py` | Compatibility aliases for old typeclass/import paths |
+| `accounts.py`, `channels.py`, `scripts.py` | Evennia account, communication and script typeclasses |
 
-You can change the structure of this directory (even rename the
-directory itself) as you please, but if you do you must add the
-appropriate new paths to your settings.py file so Evennia knows where
-to look. Also remember that for Python to find your modules, it
-requires you to add an empty `__init__.py` file in any new sub
-directories you create.
+Concrete modules are imported explicitly; package initializers do not eagerly
+load every typeclass. This avoids cycles during Evennia startup. `ActorMixin`
+and movement hooks import equipment locally because equipment inherits `Object`.
+
+See [Component architecture](../docs/component-architecture.md) for supported
+paths, factory usage, adding a tool and loading existing worlds. Keep compatibility
+aliases: Evennia stores typeclass paths in the database. Core configured paths
+such as `typeclasses.characters.Character` and the command-set locations remain
+stable; this refactor requires no settings change.

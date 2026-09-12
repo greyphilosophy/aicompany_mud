@@ -7,8 +7,12 @@ import evennia
 import pytest
 from twisted.internet.defer import Deferred
 from evennia.utils.create import create_object
-from typeclasses.npcs import NPC, Listener, Speaker, Task
-from typeclasses.agency import Brain, StickyNotePad
+from typeclasses.npcs import NPC
+from typeclasses.components.listener import Listener
+from typeclasses.tools.speaker import Speaker
+from typeclasses.tasks import Task
+from typeclasses.components.brain import Brain
+from typeclasses.tools.notes import StickyNotePad
 
 
 @pytest.fixture
@@ -28,7 +32,7 @@ def world(transactional_db, monkeypatch, settings):
     from twisted.internet.task import Clock
 
     clock = Clock()
-    monkeypatch.setattr("typeclasses.agency.reactor", clock)
+    monkeypatch.setattr("systems.agency.reactor", clock)
     jobs = []
 
     def dispatch(fn, *args):
@@ -36,7 +40,7 @@ def world(transactional_db, monkeypatch, settings):
         jobs.append((fn, args, d))
         return d
 
-    monkeypatch.setattr("typeclasses.agency.deferToThread", dispatch)
+    monkeypatch.setattr("typeclasses.components.brain.deferToThread", dispatch)
     listener = create_object(Listener, key="Listener", location=npc)
     voice = create_object(Speaker, key="Voice", location=npc)
     return SimpleNamespace(
@@ -325,7 +329,7 @@ def test_brain_decision_runs_through_real_provider_adapter(world, monkeypatch):
         return {"action": "complete", "result": "Found it"}
 
     monkeypatch.setattr(
-        "typeclasses.agency.build_default_client_from_env",
+        "typeclasses.components.brain.build_default_client_from_env",
         lambda: SimpleNamespace(chat_json=chat),
     )
     fn, args, d = world.jobs[0]
@@ -535,7 +539,7 @@ def test_decision_dispatch_failure_releases_actor(world, monkeypatch):
     def fail(*args):
         raise RuntimeError("Thread pool unavailable")
 
-    monkeypatch.setattr("typeclasses.agency.deferToThread", fail)
+    monkeypatch.setattr("typeclasses.components.brain.deferToThread", fail)
     world.npc.create_task("Find the key")
     assert not world.npc.ndb.agency_inflight
     assert world.npc.ndb.agency_state == "blocked"
@@ -575,7 +579,7 @@ def test_autonomous_subtasks_share_parent_budget(world):
 
 
 def test_subtask_budget_does_not_reset_when_transferred(world):
-    from typeclasses.agency import budget_task
+    from systems.agency import budget_task
 
     pad = create_object(StickyNotePad, key="Notes", location=world.npc)
     parent = world.npc.create_task("Organize work")

@@ -2,7 +2,10 @@
 
 from types import SimpleNamespace
 
-from typeclasses.npcs import Context, Listener, NPC, Speaker
+from typeclasses.components.context import Context
+from typeclasses.components.listener import Listener
+from typeclasses.npcs import NPC
+from typeclasses.tools.speaker import Speaker
 
 
 class Db:
@@ -76,7 +79,9 @@ class Deferred:
 
 
 def test_context_is_a_portable_inventory_object():
-    assert issubclass(Context, Object := __import__("typeclasses.objects", fromlist=["Object"]).Object)
+    assert issubclass(
+        Context, Object := __import__("typeclasses.objects", fromlist=["Object"]).Object
+    )
     assert issubclass(NPC, Object)
 
 
@@ -107,16 +112,21 @@ def test_context_reply_can_be_inserted_after_the_snapshot_it_answered():
 
 
 def test_an_npc_can_incorporate_all_or_part_of_another_context():
-    source = context([
-        {"role": "user", "who": "A", "content": "one"},
-        {"role": "assistant", "who": "B", "content": "two"},
-        {"role": "user", "who": "A", "content": "three"},
-    ])
+    source = context(
+        [
+            {"role": "user", "who": "A", "content": "one"},
+            {"role": "assistant", "who": "B", "content": "two"},
+            {"role": "user", "who": "A", "content": "three"},
+        ]
+    )
     destination = context()
     npc = npc_with(destination)
     npc.get_context = lambda: destination
     assert NPC.incorporate_context(npc, source, 1, 3) is True
-    assert [entry["content"] for entry in Context.export(destination)] == ["two", "three"]
+    assert [entry["content"] for entry in Context.export(destination)] == [
+        "two",
+        "three",
+    ]
 
 
 def test_listener_records_only_when_carried_by_the_npc():
@@ -157,7 +167,9 @@ def test_speaker_builds_llm_messages_from_the_carried_context(monkeypatch):
             seen["messages"] = messages
             return {"response": "I am Ada."}
 
-    monkeypatch.setattr("typeclasses.npcs.build_default_client_from_env", lambda: Client())
+    monkeypatch.setattr(
+        "typeclasses.tools.speaker.build_default_client_from_env", lambda: Client()
+    )
     speaker.providers = lambda: []
     answer = Speaker.generate_response(speaker, SimpleNamespace(key="Ada"), memory)
     assert answer == "I am Ada."
@@ -459,5 +471,7 @@ def test_pending_follow_up_does_not_cross_into_a_new_context(monkeypatch):
 
 
 def test_npc_is_an_object_not_an_autonomous_character():
-    assert issubclass(NPC, __import__("typeclasses.objects", fromlist=["Object"]).Object)
+    assert issubclass(
+        NPC, __import__("typeclasses.objects", fromlist=["Object"]).Object
+    )
     assert not hasattr(NPC, "at_tick")

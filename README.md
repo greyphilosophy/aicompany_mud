@@ -2,7 +2,7 @@
 
 This is an experimental **Evennia-based MUD** exploring AI-assisted worldbuilding, room management, and object interaction.
 
-The primary goal of this repository is **version control and iteration**. Collaboration is welcome but not required; the project is designed to run locally with minimal setup and without external dependencies by default.
+The primary goal of this repository is **version control and iteration**. Collaboration is welcome but not required; the project is designed to run locally with its Python dependencies and configured local model services.
 
 ---
 
@@ -10,6 +10,9 @@ The primary goal of this repository is **version control and iteration**. Collab
 
 This codebase builds on the Evennia MUD framework and adds:
 
+- **Composable actors** whose hearing, reasoning, speech and knowledge come from transferable inventory objects
+- **Executable tools** with shared validation, a built-in catalog and a Python construction factory
+- **Task notes** that transfer objectives between holders, with bounded reasoning and conversation
 - **Smart rooms** that can dynamically refine their descriptions
 - An in-world assistant (`computer`) that can:
   - Create, edit, and remove objects
@@ -26,16 +29,23 @@ If no API keys are configured, the game still runs normally and will rely only o
 
 ## Repository Structure
 
-```
-aicompany_mud/
-├── commands/        # Custom in-game commands
-├── server/          # Evennia server configuration (expected structure)
-├── typeclasses/     # Rooms, objects, characters, exits
-├── utils/           # LLM clients, room director, helpers, image generation
-├── web/             # Web client overrides (if any)
-├── world/           # Game content and prototypes
-└── README.md
-```
+| Directory | Contents |
+| --- | --- |
+| `commands/` | Custom player commands and command sets |
+| `docs/` | Requirements, setup and architecture guides |
+| `systems/` | Shared agency lifecycle and budget coordination |
+| `tests/` | Acceptance and regression tests |
+| `server/` | Evennia configuration and server integration |
+| `typeclasses/` | Bodies, portable components, tasks and executable tools |
+| `utils/` | LLM clients, room helpers and image generation |
+| `web/` | Web client overrides |
+| `world/` | Content definitions and prototypes |
+
+Start with [Component architecture](docs/component-architecture.md) for the module map,
+tool catalog/factory and adding a tool. [Composable agency](docs/composable-agency.md)
+covers equipping actors and model execution; [Inventory transfers](docs/inventory-transfers.md)
+covers giving and retrieving equipment. [Actor collaboration](docs/actor-collaboration.md)
+documents the legacy task-scoped speech API.
 
 The `server/` directory structure follows Evennia's expectations and should not be reorganized without updating configuration.
 
@@ -44,7 +54,7 @@ The `server/` directory structure follows Evennia's expectations and should not 
 ## Requirements
 
 - **Python 3.12+** (with a virtual environment recommended)
-- **Evennia** (`pip install evennia`)
+- **Evennia 5.0.1** (installed by `requirements.txt`)
 - A locally running **OpenAI-compatible LLM server** (e.g., vLLM, LM Studio)
 - *(Optional)* **FLUX.2 REST image server** (on a separate machine or container)
 
@@ -102,7 +112,7 @@ cp server/conf/secret_settings.py.example server/conf/secret_settings.py
 ```
 
 Edit `secret_settings.py` and adjust values for your environment:
-- `SECRET_KEY` — Django secret key (generate with `python -c "from django.core.secretkey import get_secret_key; print(get_secret_key())"`)
+- `SECRET_KEY` — Django secret key (generate with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`)
 - `LOCAL_BASE_URL` / `LOCAL_MODEL` — your LLM endpoint and model
 - `STARTING_POSITION_ID` — dbref of the starting room
 
@@ -128,6 +138,18 @@ A companion **Discord gateway** connects the MUD to Discord, allowing players to
 - See `evennia-discord-gateway/README.md` for setup instructions
 
 ---
+
+## Tests
+
+The component, tool, agency and inventory acceptance suite uses real Evennia objects
+with controlled model responses:
+
+```sh
+python -m pytest --ds=tests.npc_settings tests/test_component_architecture.py tests/test_inventory_transfers.py tests/test_portable_capabilities.py tests/test_agency_requirements.py tests/test_npc_requirements.py tests/test_agent_collaboration_requirements.py tests/test_collaboration_integration.py
+```
+
+These settings omit the optional image-generator app. This suite does not validate
+live model quality, image services or the Discord gateway.
 
 ## Philosophy
 

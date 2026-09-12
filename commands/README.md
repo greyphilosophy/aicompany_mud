@@ -1,14 +1,22 @@
-# commands/
+# Player commands
 
-This folder holds modules for implementing one's own commands and
-command sets. All the modules' classes are essentially empty and just
-imports the default implementations from Evennia; so adding anything
-to them will start overloading the defaults. 
+`default_cmdsets.py` extends Evennia's standard command sets. Add a custom command
+there to make it available to Characters. Preserve these configured command-set
+paths unless the corresponding server settings are updated too.
 
-You can change the organisation of this directory as you see fit, just
-remember that if you change any of the default command set classes'
-locations, you need to add the appropriate paths to
-`server/conf/settings.py` so that Evennia knows where to find them.
-Also remember that if you create new sub directories you must put
-(optionally empty) `__init__.py` files in there so that Python can
-find your modules.
+| Module | Command | Purpose |
+| --- | --- | --- |
+| `inventory.py` | `get <item> from <holder>` / `grab` | Retrieve a nearby holder's direct inventory item with access checks; ordinary room pickup is preserved |
+| `tools.py` | `tool <name>[/<action> = <JSON>]` | Inspect or invoke a carried executable tool |
+| `dig.py` | `dig` | Create SmartRoom locations |
+| `drink.py` | `drink`, `check` | Consume drinks and inspect object abilities |
+| `regen.py` | `regen` | Request image regeneration |
+
+Giving uses the inherited Evennia command: `give <item> to <holder>`. See
+[Inventory transfers](../docs/inventory-transfers.md) for retrieval defaults and
+holder locks.
+
+The player `tool` command and Brain use the same `Tool.invoke()` contract. Tool
+construction is currently a trusted Python setup operation described in
+[Component architecture](../docs/component-architecture.md); no fabrication
+command is installed.
